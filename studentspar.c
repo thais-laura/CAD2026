@@ -80,26 +80,6 @@ int comparador(const void* a, const void *b){
   return (*(double *) a - *(double *) b);
 }
 
-// void kway(double *dados, int *indices, int *ends, double* out, int tam_total, int n_vec){
-//   for(int i = 0; i < tam_total; i++){
-//     double min = 200.0;
-//     int min_val_vec = -1;
-
-//     for(int j = 0; j < n_vec; j++){
-//       if(indices[j] < ends[j]){
-//         double val = dados[indices[j]];
-//         if (val < min) {
-//             min = val;
-//             min_val_vec = j;
-//         }
-//       }
-//     }
-//     if(min_val_vec != -1){
-//       out[i] = min;
-//       indices[min_val_vec]++;
-//     }
-//   }
-// }
 
 int main(int argc, char *argv[]) {
   if (argc != 2) {
@@ -285,64 +265,7 @@ int main(int argc, char *argv[]) {
     }
     // ---------------------------------------------------------------------------------------------
     // CÁLCULO MEDIANAS, MAIOR E MENOR REGIÃO
-    // #pragma omp single 
-    // {
-    //   printf("Tempo após calculo das medianas cidade:%.5f\n", (omp_get_wtime() - tempo));
-
-    //   int num_threads = omp_get_num_threads();
-    //   thread_local_tmp_notas = malloc(num_threads * sizeof(double*));
-    //   thread_local_idx = malloc(num_threads * sizeof(int*));
-    //   thread_local_ends = malloc(num_threads * sizeof(int*));
-
-    //   for (int t = 0; t < num_threads; t++){
-    //     thread_local_tmp_notas[t] = malloc(ent.C * ent.A * sizeof(double));
-    //     thread_local_idx[t] = malloc(ent.C * sizeof(int));
-    //     thread_local_ends[t] = malloc(ent.C * sizeof(int));
-    //   }
-    // }
-
-    // #pragma omp for private(i, j, k) schedule(dynamic)
-    // for(i = 0; i < ent.R; i++)
-    // {
-    //   int tid = omp_get_thread_num();
-    //   int tot_alunos = ent.C * ent.A;
-
-    //   double *tmp_notas = thread_local_tmp_notas[tid];
-    //   int *idx = thread_local_idx[tid];
-    //   int *ends = thread_local_ends[tid];
-
-    //   for(int j = 0; j < ent.C; j++){
-    //     idx[j] = indice_aluno(&ent, i, j, 0);
-    //     ends[j] = idx[j] + ent.A;
-    //   }
-    //   kway(alunos, idx, ends, tmp_notas, tot_alunos, ent.C);
-      
-    //   if(tot_alunos % 2 == 0){
-    //     regioes[i].mediana = (tmp_notas[tot_alunos / 2 - 1] + tmp_notas[tot_alunos / 2]) / 2.0; 
-    //   } else {
-    //     regioes[i].mediana = tmp_notas[tot_alunos/2];
-    //   }
-
-    //   regioes[i].menor = tmp_notas[0];
-    //   regioes[i].maior = tmp_notas[tot_alunos - 1];
-
-    //   memcpy(&alunos[indice_aluno(&ent, i, 0, 0)], tmp_notas, tot_alunos*sizeof(double));
-    // }
-
-    // #pragma omp single 
-    // {
-    //   printf("Tempo após calculo das medianas região:%.5f\n", (omp_get_wtime() - tempo));
-
-    //   int num_threads = omp_get_num_threads();
-    //   for (int t = 0; t < num_threads; t++) {
-    //     free(thread_local_tmp_notas[t]);
-    //     free(thread_local_idx[t]);
-    //     free(thread_local_ends[t]);
-    //   }
-    //   free(thread_local_tmp_notas);
-    //   free(thread_local_idx);
-    //   free(thread_local_ends);
-    // }
+    
     #pragma omp for private(i, j, k) 
     for(i = 0; i < ent.R; i++)
     {
@@ -361,31 +284,6 @@ int main(int argc, char *argv[]) {
 
     // ---------------------------------------------------------------------------------------------
     // CÁLCULO MEDIANAS, MAIOR E MENOR BRASIL
-    // #pragma omp single
-    // {
-    //   int tot_alunos = ent.R * ent.C * ent.A;
-    //   double *tmp_notas = malloc(tot_alunos * sizeof(double));
-    //   int *idx = malloc(ent.R * sizeof(int));
-    //   int *ends = malloc(ent.R * sizeof(int));
-    //   for(int i = 0; i < ent.R; i++){
-    //     idx[i] = indice_aluno(&ent, i, 0, 0);
-    //     ends[i] = idx[i] + ent.C * ent.A;
-    //   }
-    //   kway(alunos, idx, ends, tmp_notas, tot_alunos, ent.R);
-
-    //   if(tot_alunos % 2 == 0){
-    //     brasil.mediana = (tmp_notas[tot_alunos / 2 - 1] + tmp_notas[tot_alunos / 2]) / 2.0; 
-    //   } else {
-    //     brasil.mediana = tmp_notas[tot_alunos/2];
-    //   }
-
-    //   brasil.menor = tmp_notas[0];
-    //   brasil.maior = tmp_notas[tot_alunos - 1];
-
-    //   free(idx);
-    //   free(ends);
-    //   free(tmp_notas);
-    // }
     #pragma omp single
     {
       int tot_alunos = ent.R * ent.C * ent.A;
@@ -406,10 +304,10 @@ int main(int argc, char *argv[]) {
   }
   tempo = omp_get_wtime() - tempo; 
 
-  // imprimir_medias_alunos(alunos, &ent);
-  // imprimir_medias_cidades(cidades, &ent);
-  // imprimir_medias_regioes(regioes, &ent);
-  // imprimir_medias_brasil(brasil);
+  imprimir_medias_alunos(alunos, &ent);
+  imprimir_medias_cidades(cidades, &ent);
+  imprimir_medias_regioes(regioes, &ent);
+  imprimir_medias_brasil(brasil);
 
   printf("\nTempo de execução: %.5f\n", tempo);
 
