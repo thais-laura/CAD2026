@@ -76,9 +76,72 @@ void imprimir_medias_brasil(DadosSaida brasil) {
   printf("------------------------\n");
 }
 
-int comparador(const void* a, const void *b){
-  return (*(double *) a - *(double *) b);
+// -----------------------------------------------------------------------------------------
+void swap(double* a, double* b){
+  double temp = *a;
+  *a = *b;
+  *b = temp;
 }
+
+int partition(double* arr, int l, int r){
+  int lst = arr[r], i = l, j = l;
+  while(j < r) {
+    if(arr[j] < lst){
+      swap(&arr[i], &arr[j]);
+      i++;
+    }
+    j++;
+  } 
+  swap(&arr[i], &arr[j]);
+  return i;
+}
+
+int randomPartition(double* arr, int l, int r, unsigned int *seed){
+  int n = r - l + 1;
+  int pivot = rand_r(seed) % n;
+  swap(&arr[l + pivot], &arr[r]);
+  return partition(arr, l, r); 
+}
+
+void medianUtil(double* arr, int l, int r, int k, double* a, double* b, unsigned int *seed){
+  if(l <= r){
+    int partitionIndex = randomPartition(arr, l, r, seed);
+    if(partitionIndex == k) {
+      *b = arr[partitionIndex];
+      if(*a != -1)
+        return;
+    }
+
+    else if(partitionIndex == k - 1){
+      *a = arr[partitionIndex];
+      if(*b != -1)
+        return;
+    }
+    if(partitionIndex >= k)
+      return medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);
+    else
+      return medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);
+  }
+  return;
+}
+
+double median(double* arr, int n, int thread_id){
+  double a = -1.0, b = -1.0;
+  double ans;
+  unsigned int seed = thread_id + 1;
+
+  if(n % 2 == 1){
+    medianUtil(arr, 0, n-1, n / 2, &a, &b, &seed);
+    ans = b;
+  } else {
+    medianUtil(arr, 0, n-1, n / 2, &a, &b, &seed);
+    ans = (a + b)/2;
+  }
+  return ans;
+}
+
+// ----------------------------------------------------
+
 
 
 int main(int argc, char *argv[]) {
@@ -118,7 +181,8 @@ int main(int argc, char *argv[]) {
   
 
 
-  // double **thread_local_tmp_notas = NULL;
+  double *thread_local_tmp_maior = NULL;
+  double *thread_local_tmp_menor = NULL; 
   // int **thread_local_idx = NULL;
   // int **thread_local_ends = NULL;
 
@@ -141,26 +205,40 @@ int main(int argc, char *argv[]) {
           }
       } 
     }
+
+    #pragma omp master
+    {
+        printf("Tempo após MEDIA ALUNOS: %.5f\n", omp_get_wtime() - tempo);
+    }
+
 // ---------------------------------------------------------------------------------------------
-// CÁLCULO MEDIA E DESVIO PADRAO CIDADE
+// CÁLCULO MEDIA, DESVIO PADRAO, <, > CIDADE
     #pragma omp for private(i, j, k) schedule(static) collapse(2)
     for(i=0;i<ent.R;i++)
     {
       for(j=0; j < ent.C; j++)
       {
         double soma_cidade = 0.0, media_cidade = 0.0;
+        double menor = 150.0;
+        double maior = 0.0;
         int cidade_idx = i * ent.C + j;
         for(k = 0; k < ent.A; k++){
-          int aluno_idx = indice_aluno(&ent, i, j, k);
-          soma_cidade += alunos[aluno_idx];
+          double nota = alunos[indice_aluno(&ent, i, j, k)];
+          soma_cidade += nota;
+          if(nota > maior)
+                maior = nota;
+          if(nota < menor)
+            menor = nota;
         }
         
         media_cidade = soma_cidade / ent.A;
         cidades[cidade_idx].media = media_cidade;
 
+        cidades[cidade_idx].maior = maior;
+        cidades[cidade_idx].menor = menor;
+
         double soma_diff_quadrada = 0.0;
-        for(k = 0; k < ent.A; k++)
-        {
+        for(k = 0; k < ent.A; k++) {
           int aluno_idx = indice_aluno(&ent, i, j, k);
           soma_diff_quadrada += pow(alunos[aluno_idx] - media_cidade, 2);
 
@@ -172,28 +250,86 @@ int main(int argc, char *argv[]) {
         }
       }
     }
+
+    #pragma omp master
+    {
+        printf("Tempo após MEDIA/DP/</> CIDADES: %.5f\n", omp_get_wtime() - tempo);
+    }
+
 // ---------------------------------------------------------------------------------------------
-// CÁLCULO MEDIA REGIOES
+// CÁLCULO MEDIA/</> REGIOES
     #pragma omp for private(i, j) schedule(static) reduction(+:soma)
     for(i=0;i<ent.R;i++)
     {
       double soma_regioes = 0.0;
-      for(j=0; j < ent.C; j++)
+      double maior = 0.0;
+      double menor = 150.0;
+      for(j=0; j < ent.C; j++){
+        double nota = cidades[i*ent.C+j].media;
         soma_regioes += cidades[i*ent.C+j].media; 
+        if(nota > maior)
+          maior = nota;
+        if(nota < menor)
+          menor = nota;
+      }
       
       regioes[i].media = soma_regioes / ent.C;
       soma += regioes[i].media;
+
+      regioes[i].maior = maior;
+      regioes[i].menor = menor;
+    }
+    #pragma omp master 
+    {
+      printf("Tempo após calculo das médias regioes:%.5f\n", (omp_get_wtime() - tempo));
     }
     // ---------------------------------------------------------------------------------------------
-// CÁLCULO MEDIA BRASIL
-    #pragma omp master
+// CÁLCULO MEDIA/</> BRASIL
+    #pragma omp single
     {
-    brasil.media = soma / ent.R;
+      brasil.media = soma / ent.R;
 
-    soma = 0;
-    printf("Tempo após calculo das médias:%.5f\n", (omp_get_wtime() - tempo));
+      soma = 0;
+      printf("Tempo após calculo das médias brasil:%.5f\n", (omp_get_wtime() - tempo));
+
+      
+      int num_threads = omp_get_num_threads();
+      thread_local_tmp_maior = calloc(num_threads, sizeof(double));
+      thread_local_tmp_menor = malloc(num_threads*sizeof(double));
+      for(int n = 0; n < num_threads; n++)
+        thread_local_tmp_menor[n] = 150.0;
+      
+
+      for(i = 0; i < ent.R; i++){
+        #pragma omp task
+        {
+        int thread_num = omp_get_thread_num();
+        double maior = regioes[i].maior;
+        if(maior > thread_local_tmp_maior[thread_num])
+          thread_local_tmp_maior[thread_num] = maior;
+        }
+        #pragma omp task
+        {
+          int thread_num = omp_get_thread_num();
+          double menor = regioes[i].menor;
+          if(menor > thread_local_tmp_menor[thread_num])
+            thread_local_tmp_menor[thread_num] = menor;
+        }
+      }
+      #pragma omp taskwait
+      {
+        double maior = 0.0;
+        double menor = 150.0;
+        for(int i = 0; i < omp_get_num_threads(); i++){
+          if(thread_local_tmp_maior[i] > maior)
+            maior = thread_local_tmp_maior[i];
+          if(thread_local_tmp_menor[i] < menor)
+            menor = thread_local_tmp_menor[i];
+        }
+        brasil.maior = maior;
+        brasil.menor = menor;
+      }
     }
-  
 // ---------------------------------------------------------------------------------------------
 // CÁLCULO DESVIO PADRÃO PARA REGIOES
     #pragma omp for private(j, k) schedule(static) collapse(2) reduction(+:somas_dsvpdr_regiao[0:ent.R])
@@ -219,6 +355,7 @@ int main(int argc, char *argv[]) {
             regioes[i].dsvpdr = 0.0;
         }
       }
+      printf("Tempo após DP REGIOES: %.5f\n", omp_get_wtime() - tempo);
     }
 // ---------------------------------------------------------------------------------------------
 // CÁLCULO DESVIO PADRÃO BRASIL
@@ -243,43 +380,43 @@ int main(int argc, char *argv[]) {
       else
         brasil.dsvpdr = 0; 
       
-      printf("Tempo após calculo dos DPs :%.5f\n", (omp_get_wtime() - tempo));
+      printf("Tempo após DP BRASIL: %.5f\n", (omp_get_wtime() - tempo));
     }
     // ---------------------------------------------------------------------------------------------
-    // CÁLCULO MEDIANAS, MAIOR E MENOR CIDADE
+    // CÁLCULO MEDIANAS CIDADE
     #pragma omp for private(i, j, k) collapse(2)
     for(i = 0; i < ent.R; i++)
     {
-      for(j = 0; j < ent.C; j++){
+      for(j = 0; j < ent.C; j++)
+      {
         int idx_cidade = i*ent.C + j;
         int idx_aluno = indice_aluno(&ent, i, j, 0);
-        qsort(&alunos[idx_aluno], ent.A, sizeof(double), comparador);
-        if(ent.A % 2 == 0)
-          cidades[idx_cidade].mediana = (alunos[idx_aluno + (ent.A / 2) - 1] + alunos[idx_aluno + (ent.A / 2)])/2.0;
-        else
-          cidades[idx_cidade].mediana = alunos[idx_aluno + (ent.A/2)];
-
-        cidades[idx_cidade].menor = alunos[idx_aluno];
-        cidades[idx_cidade].maior = alunos[idx_aluno + ent.A - 1];
+        int thread_num = omp_get_thread_num();
+        
+        cidades[idx_cidade].mediana = median(&alunos[idx_aluno], ent.A, thread_num);
       }
     }
+
+    #pragma omp master
+    {
+        printf("Tempo após MEDIANA CIDADES: %.5f\n", omp_get_wtime() - tempo);
+    }
     // ---------------------------------------------------------------------------------------------
-    // CÁLCULO MEDIANAS, MAIOR E MENOR REGIÃO
+    // CÁLCULO MEDIANAS REGIÃO
     
     #pragma omp for private(i, j, k) 
     for(i = 0; i < ent.R; i++)
     {
       int num_alunos = ent.C * ent.A;
       int idx_aluno = indice_aluno(&ent, i, 0, 0);
-      qsort(&alunos[idx_aluno], num_alunos, sizeof(double), comparador);
-      if(ent.A % 2 == 0)
-        regioes[i].mediana = (alunos[idx_aluno + (ent.A / 2) - 1] + alunos[idx_aluno + (ent.A / 2)])/2.0;
-      else
-        regioes[i].mediana = alunos[idx_aluno + (ent.A/2)];
-
-      regioes[i].menor = alunos[idx_aluno];
-      regioes[i].maior = alunos[idx_aluno + ent.A - 1];
+      int thread_num = omp_get_thread_num();
       
+      regioes[i].mediana = median(&alunos[idx_aluno], num_alunos, thread_num);
+    }
+
+    #pragma omp master
+    {
+        printf("Tempo após MEDIANA/MIN/MAX REGIAO: %.5f\n", omp_get_wtime() - tempo);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -287,29 +424,19 @@ int main(int argc, char *argv[]) {
     #pragma omp single
     {
       int tot_alunos = ent.R * ent.C * ent.A;
+      int thread_num = omp_get_thread_num();
 
-      qsort(alunos, tot_alunos, sizeof(double), comparador);
-
-      if(tot_alunos > 0) {
-        if(tot_alunos % 2 == 0){
-          brasil.mediana = (alunos[tot_alunos / 2 - 1] + alunos[tot_alunos / 2]) / 2.0; 
-        } else {
-          brasil.mediana = alunos[tot_alunos/2];
-        }
-
-        brasil.menor = alunos[0];
-        brasil.maior = alunos[tot_alunos - 1];
-      }
+      brasil.mediana = median(alunos, tot_alunos, thread_num);
     }
   }
   tempo = omp_get_wtime() - tempo; 
 
-  imprimir_medias_alunos(alunos, &ent);
-  imprimir_medias_cidades(cidades, &ent);
-  imprimir_medias_regioes(regioes, &ent);
-  imprimir_medias_brasil(brasil);
+  // imprimir_medias_alunos(alunos, &ent);
+  // imprimir_medias_cidades(cidades, &ent);
+  // imprimir_medias_regioes(regioes, &ent);
+  // imprimir_medias_brasil(brasil);
 
-  printf("\nTempo de execução: %.5f\n", tempo);
+  printf("\nTempo de execução final(Med Brasil): %.5f\n", tempo);
 
   free(alunos);
   free(cidades);
