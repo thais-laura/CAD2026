@@ -425,7 +425,20 @@ int main(int argc, char *argv[]) {
     {
       int tot_alunos = ent.R * ent.C * ent.A;
       int thread_num = omp_get_thread_num();
-
+      
+      double menor = alunos[0];
+      double maior = alunos[0];
+  
+      for (int t = 1; t < tot_alunos; t++) {
+          if (alunos[t] < menor)
+              menor = alunos[t];
+          if (alunos[t] > maior)
+              maior = alunos[t];
+      }
+  
+      brasil.menor = menor;
+      brasil.maior = maior;
+      
       brasil.mediana = median(alunos, tot_alunos, thread_num);
     }
   }
