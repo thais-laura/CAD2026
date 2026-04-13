@@ -1,4 +1,4 @@
-// gcc -Wall -std=c99 -o test_input input.c main.c
+// gcc -Wall -std=c99 -o test_input input.c studentspar.c -lm -fopenmp
 // ./test_input Trab01-AvalEstudantes-ExemploArqEntrada0-v2.txt
 
 #include "input.h"
