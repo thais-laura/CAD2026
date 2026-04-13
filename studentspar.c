@@ -9,6 +9,10 @@
 #include <math.h>
 #include <string.h>
 
+#define THRESHOLD_QUICKSELECT 1000
+#define THRESHOLD_CHAN 1000
+
+// armazena as estatisticas calculadas pra cada nivel (cidade, regiao, brasil)
 typedef struct{
   double maior;
   double menor;
@@ -17,7 +21,7 @@ typedef struct{
   double dsvpdr;
 } DadosSaida;
 
-
+// funções de print (não estão na formatação esperada, foi elaborada apenas para verificar os resultados)
 void imprimir_medias_alunos(double *alunos, Entrada *ent) {
     printf("\n--- Médias dos Alunos ---\n");
     for (int i = 0; i < ent->R; i++) {
@@ -77,12 +81,19 @@ void imprimir_medias_brasil(DadosSaida brasil) {
 }
 
 // -----------------------------------------------------------------------------------------
+// RANDOM QUICKSELECT
+// algoritmo que escolhe um pivo aleatoriamente no vetor, e troca elementos nas partições
+// até os menores ficarem a esquerda e os maiores a direita. Isso é feito até o pivô ser 
+// a mediana, e as partições em que a mediana certamente nao está são descartadas (não ordena).
+
+// troca dois elementos de posicao no vetor
 void swap(double* a, double* b){
   double temp = *a;
   *a = *b;
   *b = temp;
 }
 
+// particao do quickselect: joga menores que o pivo pra esquerda
 int partition(double* arr, int l, int r){
   int lst = arr[r], i = l, j = l;
   while(j < r) {
@@ -96,16 +107,19 @@ int partition(double* arr, int l, int r){
   return i;
 }
 
+// escolhe pivo aleatorio (evita o pior caso de O(N^2))
 int randomPartition(double* arr, int l, int r, unsigned int *seed){
   int n = r - l + 1;
   int pivot = rand_r(seed) % n;
   swap(&arr[l + pivot], &arr[r]);
   return partition(arr, l, r); 
 }
-
+// acha os elementos centrais (a e b), com particoes recursivas chamadas em outras tasks
+// se ainda n atingiu THRESHOLD_CHAN
 void medianUtil(double* arr, int l, int r, int k, double* a, double* b, unsigned int *seed){
   if(l <= r){
     int partitionIndex = randomPartition(arr, l, r, seed);
+    // se achou pivo no meio do vetor e elementos centrais, retorna
     if(partitionIndex == k) {
       *b = arr[partitionIndex];
       if(*a != -1)
@@ -117,31 +131,121 @@ void medianUtil(double* arr, int l, int r, int k, double* a, double* b, unsigned
       if(*b != -1)
         return;
     }
-    if(partitionIndex >= k)
-      return medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);
-    else
-      return medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);
+    // senao, divide, criando ou nao tasks dependendo do tamanho do subvetor
+    if(*a == -1 || *b == -1){
+      if(partitionIndex >= k){
+        if(r-1 < THRESHOLD_QUICKSELECT) {
+          medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);
+        } else {
+          #pragma omp task
+          {medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);}
+        }
+      } else {
+        if(r-1 < THRESHOLD_QUICKSELECT) {
+          medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);
+        } else {
+          #pragma omp task
+          {medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);}
+        }
+      }
+    }
   }
-  return;
 }
 
+// pega um array desordenado e bagunça até achar a mediana 
 double median(double* arr, int n, int thread_id){
   double a = -1.0, b = -1.0;
   double ans;
   unsigned int seed = thread_id + 1;
 
-  if(n % 2 == 1){
-    medianUtil(arr, 0, n-1, n / 2, &a, &b, &seed);
-    ans = b;
-  } else {
-    medianUtil(arr, 0, n-1, n / 2, &a, &b, &seed);
-    ans = (a + b)/2;
+  medianUtil(arr, 0, n-1, n / 2, &a, &b, &seed);
+  #pragma omp taskwait
+  {
+    if(n % 2 == 1){
+      ans = b;
+    } else {
+      ans = (a + b)/2;
+    }
   }
   return ans;
 }
 
-// ----------------------------------------------------
+// --------------------------------------------------------------------
+// ALGORITMO PARALELO DE CHAN 
+//  https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
 
+// struct pra juntar dados de dois blocos na arvore do chan e obter retorno
+typedef struct {
+  double n;
+  double media;
+  double M2;
+  double maior;
+  double menor;
+} ValoresChan;
+
+// chan paralelizado com divide and conquer e tasks 
+// quando atinge threshold, começa a mesclar blocos pela fórmula
+void chanRecursivo(DadosSaida* in, int start, int end, int notas_por_bloco, ValoresChan* out){
+  int tam = end - start + 1;
+  if(tam <= THRESHOLD_CHAN){
+    out->n = 0.0;
+    out->media = 0.0;
+    out->M2 = 0.0;
+    out->maior = 0.0;
+    out->menor = 150.0;
+
+    for(int j = start; j <= end; j++){
+      double media = in[j].media;
+      double dsvpdr = in[j].dsvpdr;
+      // obtem m2 retrocedendo o desvio padrao (dsv = sqrt(m2/n-1))
+      double M2 = dsvpdr * dsvpdr * (notas_por_bloco > 1 ? notas_por_bloco - 1 : 0);
+
+      double maior_atual = in[j].maior;
+      double menor_atual = in[j].menor;
+
+      if(out->n == 0){
+        out->n = notas_por_bloco;
+        out->media = media;
+        out->M2 = M2;
+        out->maior = maior_atual;
+        out->menor = menor_atual;
+      } else {
+        // combina elementos do array pela formula
+        double delta = media - out->media;
+        double n_novo = out->n + notas_por_bloco;
+        
+        out->M2 = M2 + (delta * delta) * (out->n * notas_por_bloco) / n_novo;
+        out->media += delta * (notas_por_bloco / n_novo);
+        out->n = n_novo;
+
+        if (maior_atual > out->maior) out->maior = maior_atual;
+        if (menor_atual < out->menor) out->menor = menor_atual;
+      }
+    }
+    return;
+  }
+  // divide and conquer com tasks
+  int mid = start + (end - start) / 2;
+  ValoresChan left, right;
+
+  #pragma omp task shared(left)
+  {chanRecursivo(in, start, mid, notas_por_bloco, &left);}
+
+  #pragma omp task shared(right)
+  {chanRecursivo(in, mid + 1, end, notas_por_bloco, &right);}
+  // espera as duas metades ficarem prontas pra juntar 
+  #pragma omp taskwait
+  {
+    double n_novo = left.n + right.n;
+    double delta = right.media - left.media;
+
+    out->n = n_novo;
+    out->M2 = left.M2 + right.M2 + (delta * delta) * (left.n * right.n) / n_novo;
+    out->media = left.media + delta * (right.n / n_novo);
+    out->maior = (left.maior > right.maior) ? left.maior : right.maior;
+    out->menor = (left.menor < right.menor) ? left.menor : right.maior;
+  }
+}
 
 
 int main(int argc, char *argv[]) {
@@ -175,20 +279,10 @@ int main(int argc, char *argv[]) {
   DadosSaida brasil = {0};
 
   int i, j, k;
-  double soma = 0.0;
-
-  double *somas_dsvpdr_regiao = calloc(ent.R, sizeof(double));
-  
-
-
-  double *thread_local_tmp_maior = NULL;
-  double *thread_local_tmp_menor = NULL; 
-  // int **thread_local_idx = NULL;
-  // int **thread_local_ends = NULL;
-
+  // regiao paralela geral
   #pragma omp parallel num_threads(ent.T) private(i,k, j) shared(alunos, cidades, regioes, brasil)
   {
-// CÁLCULO MEDIA ALUNOS
+// MEDIA ALUNOS
     #pragma omp for private(i, j, k) schedule(static) collapse(3)
     for(i = 0; i < ent.R; i++)
     {
@@ -212,42 +306,33 @@ int main(int argc, char *argv[]) {
     }
 
 // ---------------------------------------------------------------------------------------------
-// CÁLCULO MEDIA, DESVIO PADRAO, <, > CIDADE
+// MEDIA, DESVIO PADRAO, <, > CIDADE
     #pragma omp for private(i, j, k) schedule(static) collapse(2)
     for(i=0;i<ent.R;i++)
     {
       for(j=0; j < ent.C; j++)
       {
-        double soma_cidade = 0.0, media_cidade = 0.0;
+        double m2 = 0, media_cidade = 0.0;
         double menor = 150.0;
         double maior = 0.0;
         int cidade_idx = i * ent.C + j;
+
         for(k = 0; k < ent.A; k++){
           double nota = alunos[indice_aluno(&ent, i, j, k)];
-          soma_cidade += nota;
-          if(nota > maior)
-                maior = nota;
-          if(nota < menor)
-            menor = nota;
+
+          if(nota > maior) maior = nota;
+          if(nota < menor) menor = nota;
+          // welford (calcula media e m2 incrementalmente)
+          double delta = nota - media_cidade;
+          media_cidade += delta / (k + 1);
+          double delta2 = nota - media_cidade; // Usa a nova média
+          m2 += delta * delta2;
         }
         
-        media_cidade = soma_cidade / ent.A;
         cidades[cidade_idx].media = media_cidade;
-
+        cidades[cidade_idx].dsvpdr = (ent.A > 1) ? sqrt(m2 / (ent.A - 1)) : 0.0;
         cidades[cidade_idx].maior = maior;
         cidades[cidade_idx].menor = menor;
-
-        double soma_diff_quadrada = 0.0;
-        for(k = 0; k < ent.A; k++) {
-          int aluno_idx = indice_aluno(&ent, i, j, k);
-          soma_diff_quadrada += pow(alunos[aluno_idx] - media_cidade, 2);
-
-        }
-        if (ent.A > 1){
-            cidades[cidade_idx].dsvpdr = sqrt(soma_diff_quadrada / (ent.A - 1));
-        } else {
-            cidades[cidade_idx].dsvpdr = 0; // Desvio padrão é 0 se houver apenas um aluno
-        }
       }
     }
 
@@ -257,140 +342,64 @@ int main(int argc, char *argv[]) {
     }
 
 // ---------------------------------------------------------------------------------------------
-// CÁLCULO MEDIA/</> REGIOES
-    #pragma omp for private(i, j) schedule(static) reduction(+:soma)
-    for(i=0;i<ent.R;i++)
-    {
-      double soma_regioes = 0.0;
-      double maior = 0.0;
-      double menor = 150.0;
-      for(j=0; j < ent.C; j++){
-        double nota = cidades[i*ent.C+j].media;
-        soma_regioes += cidades[i*ent.C+j].media; 
-        if(nota > maior)
-          maior = nota;
-        if(nota < menor)
-          menor = nota;
-      }
-      
-      regioes[i].media = soma_regioes / ent.C;
-      soma += regioes[i].media;
+// MEDIA, DESVIO PADRAO, <, > REGIOES
+// dynamic pois as tasks podem demorar tempos diferentes (devido ao rand e dados diferentes)
+    #pragma omp for schedule(dynamic)
+    for(i = 0; i < ent.R; i++){
+      ValoresChan resultado_regiao;
 
-      regioes[i].maior = maior;
-      regioes[i].menor = menor;
+      int start = i*ent.C;
+      int end = start + ent.C - 1;
+      // desce a arvore de recursao juntando as cidades de cada regiao
+      chanRecursivo(cidades, start, end, ent.C, &resultado_regiao);
+
+      regioes[i].media = resultado_regiao.media;
+      regioes[i].dsvpdr = (resultado_regiao.n > 1) ? sqrt(resultado_regiao.M2 / (resultado_regiao.n - 1)) : 0.0;
+      regioes[i].maior = resultado_regiao.maior;
+      regioes[i].menor = resultado_regiao.menor;
     }
+    
     #pragma omp master 
     {
-      printf("Tempo após calculo das médias regioes:%.5f\n", (omp_get_wtime() - tempo));
+      printf("Tempo após calculo das regioes:%.5f\n", (omp_get_wtime() - tempo));
     }
     // ---------------------------------------------------------------------------------------------
-// CÁLCULO MEDIA/</> BRASIL
+// MEDIA, DESVIO PADRAO, <, > BRASIL
     #pragma omp single
     {
-      brasil.media = soma / ent.R;
+      ValoresChan resultado_brasil;
 
-      soma = 0;
-      printf("Tempo após calculo das médias brasil:%.5f\n", (omp_get_wtime() - tempo));
+      int start = 0;
+      int end = start + ent.R - 1;
 
-      
-      int num_threads = omp_get_num_threads();
-      thread_local_tmp_maior = calloc(num_threads, sizeof(double));
-      thread_local_tmp_menor = malloc(num_threads*sizeof(double));
-      for(int n = 0; n < num_threads; n++)
-        thread_local_tmp_menor[n] = 150.0;
-      
+      // desce a arvore de recursão juntando as regioes
+      chanRecursivo(regioes, start, end, ent.R, &resultado_brasil);
 
-      for(i = 0; i < ent.R; i++){
-        #pragma omp task
-        {
-        int thread_num = omp_get_thread_num();
-        double maior = regioes[i].maior;
-        if(maior > thread_local_tmp_maior[thread_num])
-          thread_local_tmp_maior[thread_num] = maior;
-        }
-        #pragma omp task
-        {
-          int thread_num = omp_get_thread_num();
-          double menor = regioes[i].menor;
-          if(menor > thread_local_tmp_menor[thread_num])
-            thread_local_tmp_menor[thread_num] = menor;
-        }
-      }
-      #pragma omp taskwait
-      {
-        double maior = 0.0;
-        double menor = 150.0;
-        for(int i = 0; i < omp_get_num_threads(); i++){
-          if(thread_local_tmp_maior[i] > maior)
-            maior = thread_local_tmp_maior[i];
-          if(thread_local_tmp_menor[i] < menor)
-            menor = thread_local_tmp_menor[i];
-        }
-        brasil.maior = maior;
-        brasil.menor = menor;
-      }
+      brasil.media = resultado_brasil.media;
+      brasil.dsvpdr = (resultado_brasil.n > 1) ? sqrt(resultado_brasil.M2 / (resultado_brasil.n - 1)) : 0.0;
+      brasil.maior = resultado_brasil.maior;
+      brasil.menor = resultado_brasil.menor;
     }
-// ---------------------------------------------------------------------------------------------
-// CÁLCULO DESVIO PADRÃO PARA REGIOES
-    #pragma omp for private(j, k) schedule(static) collapse(2) reduction(+:somas_dsvpdr_regiao[0:ent.R])
-    for(i = 0; i < ent.R; i++)
+
+    #pragma omp master
     {
-      for(j=0;j < ent.C; j++)
-      {
-        double media_regiao = regioes[i].media;
-        for(k=0; k < ent.A; k++){
-          int aluno_idx = indice_aluno(&ent, i, j, k);
-          // Cada thread acumula em sua cópia privada de somas_dsvpdr_regiao. Sem contenção!
-          somas_dsvpdr_regiao[i] += pow(alunos[aluno_idx] - media_regiao, 2);
-        }
-      }
+      // printa os alunos e corrige o tempo de execução (n lembro se é obrigatório printar isso)
+      double antes = omp_get_wtime();
+      // precisa imprimir as médias antes de reordenar o vetor alunos (quickselect)
+      imprimir_medias_alunos(alunos, &ent);
+      double depois = omp_get_wtime();
+      tempo -= (depois - antes);
     }
-    #pragma omp master 
-    {
-      for(i = 0; i < ent.R; i++){
-        int total_alunos_regiao = ent.C * ent.A;
-        if (total_alunos_regiao > 1) {
-            regioes[i].dsvpdr = sqrt(somas_dsvpdr_regiao[i] / (total_alunos_regiao - 1));
-        } else {
-            regioes[i].dsvpdr = 0.0;
-        }
-      }
-      printf("Tempo após DP REGIOES: %.5f\n", omp_get_wtime() - tempo);
-    }
-// ---------------------------------------------------------------------------------------------
-// CÁLCULO DESVIO PADRÃO BRASIL
-    #pragma omp for private(i,j,k) schedule(static) collapse(3) reduction(+:soma)
-    for(i = 0; i < ent.R; i++)
-    {
-      for(j=0;j < ent.C; j++)
-      {
-        for(k=0; k < ent.A; k++)
-        {
-          double media_brasil = brasil.media;
-          int idx_aluno = indice_aluno(&ent, i, j, k);
-          soma += pow(alunos[idx_aluno] - media_brasil, 2);
-        }
-      }
-    }
-    #pragma omp master 
-    {
-      int total_alunos_brasil = ent.R*ent.C*ent.A;
-      if(total_alunos_brasil > 1)
-        brasil.dsvpdr = sqrt(soma / (total_alunos_brasil - 1));
-      else
-        brasil.dsvpdr = 0; 
-      
-      printf("Tempo após DP BRASIL: %.5f\n", (omp_get_wtime() - tempo));
-    }
+
     // ---------------------------------------------------------------------------------------------
-    // CÁLCULO MEDIANAS CIDADE
+    // MEDIANAS CIDADE
     #pragma omp for private(i, j, k) collapse(2)
     for(i = 0; i < ent.R; i++)
     {
       for(j = 0; j < ent.C; j++)
       {
         int idx_cidade = i*ent.C + j;
-        int idx_aluno = indice_aluno(&ent, i, j, 0);
+        int idx_aluno = indice_aluno(&ent, i, j, 0); // primeiro aluno de cada cidade
         int thread_num = omp_get_thread_num();
         
         cidades[idx_cidade].mediana = median(&alunos[idx_aluno], ent.A, thread_num);
@@ -402,13 +411,13 @@ int main(int argc, char *argv[]) {
         printf("Tempo após MEDIANA CIDADES: %.5f\n", omp_get_wtime() - tempo);
     }
     // ---------------------------------------------------------------------------------------------
-    // CÁLCULO MEDIANAS REGIÃO
+    // MEDIANAS REGIÃO
     
     #pragma omp for private(i, j, k) 
     for(i = 0; i < ent.R; i++)
     {
       int num_alunos = ent.C * ent.A;
-      int idx_aluno = indice_aluno(&ent, i, 0, 0);
+      int idx_aluno = indice_aluno(&ent, i, 0, 0); // primeiro aluno de cada regiao
       int thread_num = omp_get_thread_num();
       
       regioes[i].mediana = median(&alunos[idx_aluno], num_alunos, thread_num);
@@ -416,38 +425,25 @@ int main(int argc, char *argv[]) {
 
     #pragma omp master
     {
-        printf("Tempo após MEDIANA/MIN/MAX REGIAO: %.5f\n", omp_get_wtime() - tempo);
+        printf("Tempo após MEDIANA REGIAO: %.5f\n", omp_get_wtime() - tempo);
     }
 
     // ---------------------------------------------------------------------------------------------
-    // CÁLCULO MEDIANAS, MAIOR E MENOR BRASIL
+    // MEDIANAS BRASIL
     #pragma omp single
     {
       int tot_alunos = ent.R * ent.C * ent.A;
       int thread_num = omp_get_thread_num();
-      
-      double menor = alunos[0];
-      double maior = alunos[0];
-  
-      for (int t = 1; t < tot_alunos; t++) {
-          if (alunos[t] < menor)
-              menor = alunos[t];
-          if (alunos[t] > maior)
-              maior = alunos[t];
-      }
-  
-      brasil.menor = menor;
-      brasil.maior = maior;
-      
+    
       brasil.mediana = median(alunos, tot_alunos, thread_num);
     }
   }
   tempo = omp_get_wtime() - tempo; 
 
-  // imprimir_medias_alunos(alunos, &ent);
-  // imprimir_medias_cidades(cidades, &ent);
-  // imprimir_medias_regioes(regioes, &ent);
-  // imprimir_medias_brasil(brasil);
+  
+  imprimir_medias_cidades(cidades, &ent);
+  imprimir_medias_regioes(regioes, &ent);
+  imprimir_medias_brasil(brasil);
 
   printf("\nTempo de execução final(Med Brasil): %.5f\n", tempo);
 
