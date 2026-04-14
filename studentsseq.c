@@ -129,7 +129,7 @@ void medianUtil(double* arr, int l, int r, int k, double* a, double* b){
       if(*b != -1)
         return;
     }
-    // senao, divide, criando ou nao tasks dependendo do tamanho do subvetor
+   
     if(*a == -1 || *b == -1){
       if(partitionIndex >= k){
           medianUtil(arr, l, partitionIndex - 1, k, a, b);
