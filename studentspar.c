@@ -278,6 +278,10 @@ int main(int argc, char *argv[]) {
   DadosSaida *regioes = calloc(ent.R, sizeof(DadosSaida));
   DadosSaida brasil = {0};
 
+  int tot_alunos = ent.C*ent.R*ent.A;
+  int num_notas = ent.N;
+  double *notas = dados.notas;
+
   int i, j, k;
   // regiao paralela geral
   #pragma omp parallel num_threads(ent.T) private(i,k, j) shared(alunos, cidades, regioes, brasil)
@@ -291,11 +295,15 @@ int main(int argc, char *argv[]) {
           for(k = 0; k < ent.A; k++)
           {
             double soma_aluno = 0.0;
-            // calcula media
-            for(int l = 0; l < ent.N; l++)
-              soma_aluno += pegar_nota(&dados, i, j, k, l);
+          int idx = indice_aluno(&ent, i, j, k);
+          
+          // vetorização: obriga o processador a somar várias notas no mesmo ciclo de clock
+          #pragma omp simd reduction(+:soma_aluno)
+          for(int l = 0; l < num_notas; l++) {
+            soma_aluno += notas[idx + l];
+          }
             
-            alunos[indice_aluno(&ent,i, j, k)] = soma_aluno / ent.N;
+          alunos[idx] = soma_aluno / num_notas;
           }
       } 
     }
@@ -432,7 +440,6 @@ int main(int argc, char *argv[]) {
     // MEDIANAS BRASIL
     #pragma omp single
     {
-      int tot_alunos = ent.R * ent.C * ent.A;
       int thread_num = omp_get_thread_num();
     
       brasil.mediana = median(alunos, tot_alunos, thread_num);
