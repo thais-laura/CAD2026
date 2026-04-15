@@ -1,5 +1,5 @@
-// gcc -Wall -std=c99 -o test_input input.c studentspar.c -lm -fopenmp
-// ./test_input Trab01-AvalEstudantes-ExemploArqEntrada0-v2.txt
+// gcc -Wall studentspar.c input.c -o teste-par -lm -fopenmp
+// ./teste-par Trab01-AvalEstudantes-ExemploArqEntrada0-v2.txt
 
 #include "input.h"
 
@@ -95,7 +95,8 @@ void swap(double* a, double* b){
 
 // particao do quickselect: joga menores que o pivo pra esquerda
 int partition(double* arr, int l, int r){
-  int lst = arr[r], i = l, j = l;
+  int i = l, j = l;
+  double lst = arr[r];
   while(j < r) {
     if(arr[j] < lst){
       swap(&arr[i], &arr[j]);
@@ -103,7 +104,7 @@ int partition(double* arr, int l, int r){
     }
     j++;
   } 
-  swap(&arr[i], &arr[j]);
+  swap(&arr[i], &arr[r]);
   return i;
 }
 
@@ -157,16 +158,18 @@ double median(double* arr, int n, int thread_id){
   double a = -1.0, b = -1.0;
   double ans;
   unsigned int seed = thread_id + 1;
-
-  medianUtil(arr, 0, n-1, n / 2, &a, &b, &seed);
-  #pragma omp taskwait
+  #pragma omp taskgroup
   {
-    if(n % 2 == 1){
-      ans = b;
-    } else {
-      ans = (a + b)/2;
-    }
+    medianUtil(arr, 0, n-1, n / 2, &a, &b, &seed);
   }
+  
+  
+  if(n % 2 == 1){
+    ans = b;
+  } else {
+    ans = (a + b)/2;
+  }
+  
   return ans;
 }
 
@@ -185,7 +188,7 @@ typedef struct {
 
 // chan paralelizado com divide and conquer e tasks 
 // quando atinge threshold, começa a mesclar blocos pela fórmula
-void chanRecursivo(DadosSaida* in, int start, int end, int notas_por_bloco, ValoresChan* out){
+void chanRecursivo(DadosSaida* in, int start, int end, int medias_por_indice_in, ValoresChan* out){
   int tam = end - start + 1;
   if(tam <= THRESHOLD_CHAN){
     out->n = 0.0;
@@ -198,13 +201,13 @@ void chanRecursivo(DadosSaida* in, int start, int end, int notas_por_bloco, Valo
       double media = in[j].media;
       double dsvpdr = in[j].dsvpdr;
       // obtem m2 retrocedendo o desvio padrao (dsv = sqrt(m2/n-1))
-      double M2 = dsvpdr * dsvpdr * (notas_por_bloco > 1 ? notas_por_bloco - 1 : 0);
+      double M2 = dsvpdr * dsvpdr * (medias_por_indice_in > 1 ? medias_por_indice_in - 1 : 0);
 
       double maior_atual = in[j].maior;
       double menor_atual = in[j].menor;
 
       if(out->n == 0){
-        out->n = notas_por_bloco;
+        out->n = medias_por_indice_in;
         out->media = media;
         out->M2 = M2;
         out->maior = maior_atual;
@@ -212,10 +215,10 @@ void chanRecursivo(DadosSaida* in, int start, int end, int notas_por_bloco, Valo
       } else {
         // combina elementos do array pela formula
         double delta = media - out->media;
-        double n_novo = out->n + notas_por_bloco;
+        double n_novo = out->n + medias_por_indice_in;
         
-        out->M2 = M2 + (delta * delta) * (out->n * notas_por_bloco) / n_novo;
-        out->media += delta * (notas_por_bloco / n_novo);
+        out->M2 = M2 + (delta * delta) * (out->n * medias_por_indice_in) / n_novo;
+        out->media += delta * (medias_por_indice_in / n_novo);
         out->n = n_novo;
 
         if (maior_atual > out->maior) out->maior = maior_atual;
@@ -229,10 +232,10 @@ void chanRecursivo(DadosSaida* in, int start, int end, int notas_por_bloco, Valo
   ValoresChan left, right;
 
   #pragma omp task shared(left)
-  {chanRecursivo(in, start, mid, notas_por_bloco, &left);}
+  {chanRecursivo(in, start, mid, medias_por_indice_in, &left);}
 
   #pragma omp task shared(right)
-  {chanRecursivo(in, mid + 1, end, notas_por_bloco, &right);}
+  {chanRecursivo(in, mid + 1, end, medias_por_indice_in, &right);}
   // espera as duas metades ficarem prontas pra juntar 
   #pragma omp taskwait
   {
@@ -243,7 +246,7 @@ void chanRecursivo(DadosSaida* in, int start, int end, int notas_por_bloco, Valo
     out->M2 = left.M2 + right.M2 + (delta * delta) * (left.n * right.n) / n_novo;
     out->media = left.media + delta * (right.n / n_novo);
     out->maior = (left.maior > right.maior) ? left.maior : right.maior;
-    out->menor = (left.menor < right.menor) ? left.menor : right.maior;
+    out->menor = (left.menor < right.menor) ? left.menor : right.menor;
   }
 }
 
@@ -269,7 +272,7 @@ int main(int argc, char *argv[]) {
 
   // amostra pra conferir
   imprimir_resumo(&dados);
-  // imprimir_notas(&dados, 0);
+  imprimir_notas(&dados, 0);
 
   double tempo = omp_get_wtime();
 
@@ -292,19 +295,19 @@ int main(int argc, char *argv[]) {
     {
       for(j = 0; j < ent.C; j++)
       {
-          for(k = 0; k < ent.A; k++)
-          {
-            double soma_aluno = 0.0;
-          int idx = indice_aluno(&ent, i, j, k);
+        for(k = 0; k < ent.A; k++)
+        {     
+          double soma_aluno = 0.0;
+          int idx = indice_aluno(&ent, i, j, k) * num_notas;
           
           // vetorização: obriga o processador a somar várias notas no mesmo ciclo de clock
           #pragma omp simd reduction(+:soma_aluno)
           for(int l = 0; l < num_notas; l++) {
             soma_aluno += notas[idx + l];
           }
-            
-          alunos[idx] = soma_aluno / num_notas;
-          }
+
+          alunos[indice_aluno(&ent,i, j, k)] = soma_aluno / num_notas;
+        }
       } 
     }
 
@@ -359,7 +362,7 @@ int main(int argc, char *argv[]) {
       int start = i*ent.C;
       int end = start + ent.C - 1;
       // desce a arvore de recursao juntando as cidades de cada regiao
-      chanRecursivo(cidades, start, end, ent.C, &resultado_regiao);
+      chanRecursivo(cidades, start, end, ent.A, &resultado_regiao);
 
       regioes[i].media = resultado_regiao.media;
       regioes[i].dsvpdr = (resultado_regiao.n > 1) ? sqrt(resultado_regiao.M2 / (resultado_regiao.n - 1)) : 0.0;
@@ -381,7 +384,7 @@ int main(int argc, char *argv[]) {
       int end = start + ent.R - 1;
 
       // desce a arvore de recursão juntando as regioes
-      chanRecursivo(regioes, start, end, ent.R, &resultado_brasil);
+      chanRecursivo(regioes, start, end, ent.C, &resultado_brasil);
 
       brasil.media = resultado_brasil.media;
       brasil.dsvpdr = (resultado_brasil.n > 1) ? sqrt(resultado_brasil.M2 / (resultado_brasil.n - 1)) : 0.0;
@@ -389,7 +392,8 @@ int main(int argc, char *argv[]) {
       brasil.menor = resultado_brasil.menor;
     }
 
-    #pragma omp master
+    // --------------------------------------------------------------------------------------------------------
+    #pragma omp single
     {
       // printa os alunos e corrige o tempo de execução (n lembro se é obrigatório printar isso)
       double antes = omp_get_wtime();

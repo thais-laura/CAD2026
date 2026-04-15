@@ -1,5 +1,5 @@
-// gcc -Wall -std=c99 -o test_input input.c studentspar.c -lm -fopenmp
-// ./test_input Trab01-AvalEstudantes-ExemploArqEntrada0-v2.txt
+// gcc -Wall -O3 studentsseq.c input.c -o teste-seq -lm -fopenmp
+// ./teste-seq Trab01-AvalEstudantes-ExemploArqEntrada0-v2.txt
 
 #include "input.h"
 
@@ -94,7 +94,8 @@ void swap(double* a, double* b){
 
 // particao do quickselect: joga menores que o pivo pra esquerda
 int partition(double* arr, int l, int r){
-  int lst = arr[r], i = l, j = l;
+  int  i = l, j = l;
+  double lst = arr[r];
   while(j < r) {
     if(arr[j] < lst){
       swap(&arr[i], &arr[j]);
@@ -102,21 +103,21 @@ int partition(double* arr, int l, int r){
     }
     j++;
   } 
-  swap(&arr[i], &arr[j]);
+  swap(&arr[i], &arr[r]);
   return i;
 }
 
 // escolhe pivo aleatorio (evita o pior caso de O(N^2))
-int randomPartition(double* arr, int l, int r){
+int randomPartition(double* arr, int l, int r, unsigned int *seed){
   int n = r - l + 1;
-  int pivot = rand() % n;
+  int pivot = rand_r(seed) % n;;
   swap(&arr[l + pivot], &arr[r]);
   return partition(arr, l, r); 
 }
 // acha os elementos centrais (a e b), com particoes recursivas
-void medianUtil(double* arr, int l, int r, int k, double* a, double* b){
+void medianUtil(double* arr, int l, int r, int k, double* a, double* b,unsigned int *seed){
   if(l <= r){
-    int partitionIndex = randomPartition(arr, l, r);
+    int partitionIndex = randomPartition(arr, l, r, seed);
     // se achou pivo no meio do vetor e elementos centrais, retorna
     if(partitionIndex == k) {
       *b = arr[partitionIndex];
@@ -132,9 +133,9 @@ void medianUtil(double* arr, int l, int r, int k, double* a, double* b){
    
     if(*a == -1 || *b == -1){
       if(partitionIndex >= k){
-          medianUtil(arr, l, partitionIndex - 1, k, a, b);
+          medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);
       } else {
-          medianUtil(arr, partitionIndex + 1, r, k, a, b);
+          medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);
       }
     }
   }
@@ -142,11 +143,12 @@ void medianUtil(double* arr, int l, int r, int k, double* a, double* b){
 
 
 // pega um array desordenado e bagunça até achar a mediana 
-double median(double* arr, int n){
+double median(double* arr, int n, int thread_id){
   double a = -1.0, b = -1.0;
   double ans;
+  unsigned int seed = thread_id + 1;
 
-  medianUtil(arr, 0, n-1, n / 2, &a, &b);
+  medianUtil(arr, 0, n-1, n / 2, &a, &b, &seed);
   
     if(n % 2 == 1){
       ans = b;
@@ -170,7 +172,7 @@ typedef struct {
   double menor;
 } ValoresChan;
 
-void chanRecursivo(DadosSaida* in, int start, int end, int notas_por_bloco, ValoresChan* out){
+void chanRecursivo(DadosSaida* in, int start, int end, int medias_por_indice_in, ValoresChan* out){
   int tam = end - start + 1;
   if(tam <= THRESHOLD_CHAN){
     out->n = 0.0;
@@ -183,13 +185,13 @@ void chanRecursivo(DadosSaida* in, int start, int end, int notas_por_bloco, Valo
       double media = in[j].media;
       double dsvpdr = in[j].dsvpdr;
       // obtem m2 retrocedendo o desvio padrao (dsv = sqrt(m2/n-1))
-      double M2 = dsvpdr * dsvpdr * (notas_por_bloco > 1 ? notas_por_bloco - 1 : 0);
+      double M2 = dsvpdr * dsvpdr * (medias_por_indice_in > 1 ? medias_por_indice_in - 1 : 0);
 
       double maior_atual = in[j].maior;
       double menor_atual = in[j].menor;
 
       if(out->n == 0){
-        out->n = notas_por_bloco;
+        out->n = medias_por_indice_in;
         out->media = media;
         out->M2 = M2;
         out->maior = maior_atual;
@@ -197,10 +199,10 @@ void chanRecursivo(DadosSaida* in, int start, int end, int notas_por_bloco, Valo
       } else {
         // combina elementos do array pela formula
         double delta = media - out->media;
-        double n_novo = out->n + notas_por_bloco;
+        double n_novo = out->n + medias_por_indice_in;
         
-        out->M2 = M2 + (delta * delta) * (out->n * notas_por_bloco) / n_novo;
-        out->media += delta * (notas_por_bloco / n_novo);
+        out->M2 = M2 + (delta * delta) * (out->n * medias_por_indice_in) / n_novo;
+        out->media += delta * (medias_por_indice_in / n_novo);
         out->n = n_novo;
 
         if (maior_atual > out->maior) out->maior = maior_atual;
@@ -213,18 +215,18 @@ void chanRecursivo(DadosSaida* in, int start, int end, int notas_por_bloco, Valo
   int mid = start + (end - start) / 2;
   ValoresChan left, right;
 
-  chanRecursivo(in, start, mid, notas_por_bloco, &left);
-  chanRecursivo(in, mid + 1, end, notas_por_bloco, &right);
+  chanRecursivo(in, start, mid, medias_por_indice_in, &left);
+  chanRecursivo(in, mid + 1, end, medias_por_indice_in, &right);
 
-    double n_novo = left.n + right.n;
-    double delta = right.media - left.media;
+  double n_novo = left.n + right.n;
+  double delta = right.media - left.media;
 
-    out->n = n_novo;
-    out->M2 = left.M2 + right.M2 + (delta * delta) * (left.n * right.n) / n_novo;
-    out->media = left.media + delta * (right.n / n_novo);
-    out->maior = (left.maior > right.maior) ? left.maior : right.maior;
-    out->menor = (left.menor < right.menor) ? left.menor : right.maior;
-  }
+  out->n = n_novo;
+  out->M2 = left.M2 + right.M2 + (delta * delta) * (left.n * right.n) / n_novo;
+  out->media = left.media + delta * (right.n / n_novo);
+  out->maior = (left.maior > right.maior) ? left.maior : right.maior;
+  out->menor = (left.menor < right.menor) ? left.menor : right.menor;
+}
 
 
 
@@ -249,7 +251,7 @@ int main(int argc, char *argv[]) {
 
   // amostra pra conferir
   imprimir_resumo(&dados);
-  // imprimir_notas(&dados, 0);
+  imprimir_notas(&dados, 0);
 
   double tempo = omp_get_wtime();
 
@@ -260,6 +262,10 @@ int main(int argc, char *argv[]) {
 
   int i, j, k;
 
+  int tot_alunos = ent.C*ent.R*ent.A;
+  int num_notas = ent.N;
+  double *notas = dados.notas;
+
 // MEDIA ALUNOS
     
     for(i = 0; i < ent.R; i++)
@@ -269,9 +275,10 @@ int main(int argc, char *argv[]) {
           for(k = 0; k < ent.A; k++)
           {
             double soma_aluno = 0.0;
+            int idx = indice_aluno(&ent, i, j, k) * num_notas;
             // calcula media
-            for(int l = 0; l < ent.N; l++)
-              soma_aluno += pegar_nota(&dados, i, j, k, l);
+            for(int l = 0; l < num_notas; l++)
+              soma_aluno += notas[idx + l];
             
             alunos[indice_aluno(&ent,i, j, k)] = soma_aluno / ent.N;
           }
@@ -324,7 +331,7 @@ int main(int argc, char *argv[]) {
       int start = i*ent.C;
       int end = start + ent.C - 1;
       // desce a arvore de recursao juntando as cidades de cada regiao
-      chanRecursivo(cidades, start, end, ent.C, &resultado_regiao);
+      chanRecursivo(cidades, start, end, ent.A, &resultado_regiao);
 
       regioes[i].media = resultado_regiao.media;
       regioes[i].dsvpdr = (resultado_regiao.n > 1) ? sqrt(resultado_regiao.M2 / (resultado_regiao.n - 1)) : 0.0;
@@ -343,13 +350,14 @@ int main(int argc, char *argv[]) {
       int end = start + ent.R - 1;
 
       // desce a arvore de recursão juntando as regioes
-      chanRecursivo(regioes, start, end, ent.R, &resultado_brasil);
+      chanRecursivo(regioes, start, end, ent.C, &resultado_brasil);
 
       brasil.media = resultado_brasil.media;
       brasil.dsvpdr = (resultado_brasil.n > 1) ? sqrt(resultado_brasil.M2 / (resultado_brasil.n - 1)) : 0.0;
       brasil.maior = resultado_brasil.maior;
       brasil.menor = resultado_brasil.menor;
 
+      // -----------------------------------------------------------------------------------------------
       // printa os alunos e corrige o tempo de execução (n lembro se é obrigatório printar isso)
       double antes = omp_get_wtime();
       // precisa imprimir as médias antes de reordenar o vetor alunos (quickselect)
@@ -367,7 +375,7 @@ int main(int argc, char *argv[]) {
         int idx_cidade = i*ent.C + j;
         int idx_aluno = indice_aluno(&ent, i, j, 0); // primeiro aluno de cada cidade
         
-        cidades[idx_cidade].mediana = median(&alunos[idx_aluno], ent.A);
+        cidades[idx_cidade].mediana = median(&alunos[idx_aluno], ent.A, 0);
       }
     }
 
@@ -382,7 +390,7 @@ int main(int argc, char *argv[]) {
       int num_alunos = ent.C * ent.A;
       int idx_aluno = indice_aluno(&ent, i, 0, 0); // primeiro aluno de cada regiao
       
-      regioes[i].mediana = median(&alunos[idx_aluno], num_alunos);
+      regioes[i].mediana = median(&alunos[idx_aluno], num_alunos, 0);
     }
 
     printf("Tempo após MEDIANA REGIAO: %.5f\n", omp_get_wtime() - tempo);
@@ -390,9 +398,8 @@ int main(int argc, char *argv[]) {
 
   // ---------------------------------------------------------------------------------------------
   // MEDIANAS BRASIL
-  int tot_alunos = ent.R * ent.C * ent.A;
     
-  brasil.mediana = median(alunos, tot_alunos);
+  brasil.mediana = median(alunos, tot_alunos, 0);
     
   
   tempo = omp_get_wtime() - tempo; 
