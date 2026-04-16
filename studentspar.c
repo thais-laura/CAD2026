@@ -135,19 +135,9 @@ void medianUtil(double* arr, int l, int r, int k, double* a, double* b, unsigned
     // senao, divide, criando ou nao tasks dependendo do tamanho do subvetor
     if(*a == -1 || *b == -1){
       if(partitionIndex >= k){
-        if(r-1 < THRESHOLD_QUICKSELECT) {
-          medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);
-        } else {
-          #pragma omp task
-          {medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);}
-        }
+        medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);
       } else {
-        if(r-1 < THRESHOLD_QUICKSELECT) {
-          medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);
-        } else {
-          #pragma omp task
-          {medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);}
-        }
+        medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);
       }
     }
   }
@@ -272,7 +262,7 @@ int main(int argc, char *argv[]) {
 
   // amostra pra conferir
   imprimir_resumo(&dados);
-  imprimir_notas(&dados, 0);
+  // imprimir_notas(&dados, 0);
 
   double tempo = omp_get_wtime();
 
@@ -301,7 +291,7 @@ int main(int argc, char *argv[]) {
           int idx = indice_aluno(&ent, i, j, k) * num_notas;
           
           // vetorização: obriga o processador a somar várias notas no mesmo ciclo de clock
-          #pragma omp simd reduction(+:soma_aluno)
+          #pragma omp simd reduction(+:soma_aluno) linear(idx:1)
           for(int l = 0; l < num_notas; l++) {
             soma_aluno += notas[idx + l];
           }
@@ -398,7 +388,7 @@ int main(int argc, char *argv[]) {
       // printa os alunos e corrige o tempo de execução (n lembro se é obrigatório printar isso)
       double antes = omp_get_wtime();
       // precisa imprimir as médias antes de reordenar o vetor alunos (quickselect)
-      imprimir_medias_alunos(alunos, &ent);
+      // imprimir_medias_alunos(alunos, &ent);
       double depois = omp_get_wtime();
       tempo -= (depois - antes);
     }
@@ -452,9 +442,9 @@ int main(int argc, char *argv[]) {
   tempo = omp_get_wtime() - tempo; 
 
   
-  imprimir_medias_cidades(cidades, &ent);
-  imprimir_medias_regioes(regioes, &ent);
-  imprimir_medias_brasil(brasil);
+  // imprimir_medias_cidades(cidades, &ent);
+  // imprimir_medias_regioes(regioes, &ent);
+  // imprimir_medias_brasil(brasil);
 
   printf("\nTempo de execução final(Med Brasil): %.5f\n", tempo);
 
