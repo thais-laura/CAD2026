@@ -148,10 +148,7 @@ double median(double* arr, int n, int thread_id){
   double a = -1.0, b = -1.0;
   double ans;
   unsigned int seed = thread_id + 1;
-  #pragma omp taskgroup
-  {
-    medianUtil(arr, 0, n-1, n / 2, &a, &b, &seed);
-  }
+  medianUtil(arr, 0, n-1, n / 2, &a, &b, &seed);
   
   
   if(n % 2 == 1){
