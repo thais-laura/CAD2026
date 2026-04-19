@@ -1,4 +1,4 @@
-// gcc -Wall studentspar.c input.c -o teste-par -lm -fopenmp
+// gcc -Wall -O3 studentspar.c input.c -o teste-par -lm -fopenmp
 // ./teste-par Trab01-AvalEstudantes-ExemploArqEntrada0-v2.txt
 
 #include "input.h"
@@ -9,7 +9,7 @@
 #include <math.h>
 #include <string.h>
 
-#define THRESHOLD_QUICKSELECT 1000
+#define THRESHOLD_QUICKMEDIAN_SELECT 1000
 #define THRESHOLD_CHAN 1000
 
 // armazena as estatisticas calculadas pra cada nivel (cidade, regiao, brasil)
@@ -81,7 +81,7 @@ void imprimir_medias_brasil(DadosSaida brasil) {
 }
 
 // -----------------------------------------------------------------------------------------
-// RANDOM QUICKSELECT
+// RANDOM QUICKMEDIAN_SELECT
 // algoritmo que escolhe um pivo aleatoriamente no vetor, e troca elementos nas partições
 // até os menores ficarem a esquerda e os maiores a direita. Isso é feito até o pivô ser 
 // a mediana, e as partições em que a mediana certamente nao está são descartadas (não ordena).
@@ -93,7 +93,7 @@ void swap(double* a, double* b){
   *b = temp;
 }
 
-// particao do quickselect: joga menores que o pivo pra esquerda
+// particao do quickmedian_select: joga menores que o pivo pra esquerda
 int partition(double* arr, int l, int r){
   int i = l, j = l;
   double lst = arr[r];
@@ -136,7 +136,9 @@ void medianUtil(double* arr, int l, int r, int k, double* a, double* b, unsigned
     if(*a == -1 || *b == -1){
       if(partitionIndex >= k){
         medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);
+        medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);
       } else {
+        medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);
         medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);
       }
     }
@@ -159,6 +161,93 @@ double median(double* arr, int n, int thread_id){
   
   return ans;
 }
+
+// --------------------------------------------------------------------
+// MEDIAN OF MEDIANS
+int pivot(double* arr, int left, int right);
+
+static inline int median_of_5(double* arr, int left, int right){ // median_Selection
+  for(int i = 1; i < 5; i++){
+    double key = arr[left + i];
+    int j = left + i-1;
+    while(j >= left && arr[j] > key){
+      arr[j+1] = arr[j];
+      j--;
+    }
+    arr[j+1] = key;
+  }
+  return left + (right - left)/2;
+}
+
+int partition2(double* arr, int left, int right, int pivotIndex, int  n){
+  double pivotVal = arr[pivotIndex];
+  int store = left;
+
+  swap(&arr[pivotIndex], &arr[right]);
+
+  for(int i = left; i < right -1; i++){
+    if(arr[i] < pivotVal){
+      swap(&arr[store], &arr[i]);
+      store++;
+    }
+  }
+  int storeEq = store;
+  for(int i = store; i < right -1; i++){
+    if(arr[i] == pivotVal){
+      swap(&arr[storeEq], &arr[i]);
+      storeEq++;
+    }
+  }
+  swap(&arr[right], &arr[storeEq]);
+
+  if(n < store) return store;
+  if(n<= storeEq) return n;
+
+  return storeEq;
+}
+
+int median_select(double* arr, int left, int right, int n){
+  while(1){
+    if(left == right)
+      return left;
+    int pivotIndex = pivot(arr, left, right);
+    pivotIndex = partition2(arr, left, right, pivotIndex, n);
+    if(n == pivotIndex) return n;
+    else if(n < pivotIndex) right = pivotIndex - 1;
+    else left = pivotIndex + 1;
+  }
+}
+
+int pivot(double* arr, int left, int right){
+  if(left - right < 5)
+    return median_of_5(arr, left, right);
+ #pragma omp for 
+ for(int i = left; i < right; i +=5){
+    int subRight = i + 4;
+    if(subRight > right)
+      subRight = right;
+    int l_median = median_of_5(arr, i, subRight);
+
+    swap(&arr[l_median], &arr[left + (int)((i-left)/5)]);
+  }
+  int mid = floor((right-left)/10) + left + 1;
+  return median_select(arr, left,left + (int)((right-left)/5), mid);
+}
+
+double nth_smallest(double* arr, int n){
+  int index = median_select(arr, 0, n - 1, n / 2);
+  return arr[index];
+}
+
+double median_2(double* arr, int n){
+  double value;
+  if(n %2 == 0)
+    value = 0.5 * (nth_smallest(arr, n/2) + nth_smallest(arr, n/2-1)); 
+  else
+    value = nth_smallest(arr, n/2);
+  return value;
+}
+
 
 // --------------------------------------------------------------------
 // ALGORITMO PARALELO DE CHAN 
@@ -399,9 +488,9 @@ int main(int argc, char *argv[]) {
       {
         int idx_cidade = i*ent.C + j;
         int idx_aluno = indice_aluno(&ent, i, j, 0); // primeiro aluno de cada cidade
-        int thread_num = omp_get_thread_num();
+       // int thread_num = omp_get_thread_num();
         
-        cidades[idx_cidade].mediana = median(&alunos[idx_aluno], ent.A, thread_num);
+        cidades[idx_cidade].mediana = median_2(&alunos[idx_aluno], ent.A);
       }
     }
 
@@ -417,9 +506,9 @@ int main(int argc, char *argv[]) {
     {
       int num_alunos = ent.C * ent.A;
       int idx_aluno = indice_aluno(&ent, i, 0, 0); // primeiro aluno de cada regiao
-      int thread_num = omp_get_thread_num();
+      //int thread_num = omp_get_thread_num();
       
-      regioes[i].mediana = median(&alunos[idx_aluno], num_alunos, thread_num);
+      regioes[i].mediana = median_2(&alunos[idx_aluno], num_alunos);
     }
 
     #pragma omp master
@@ -429,13 +518,19 @@ int main(int argc, char *argv[]) {
 
     // ---------------------------------------------------------------------------------------------
     // MEDIANAS BRASIL
-    #pragma omp single
-    {
-      int thread_num = omp_get_thread_num();
     
-      brasil.mediana = median(alunos, tot_alunos, thread_num);
-    }
+    
+     #pragma omp single
+     {
+      //int thread_num = omp_get_thread_num();
+      brasil.mediana = median_2(alunos, tot_alunos);
+      // reza braba para ser eficiente
+     }
+
+    
   }
+
+
   tempo = omp_get_wtime() - tempo; 
 
   

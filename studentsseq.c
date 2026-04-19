@@ -159,6 +159,93 @@ double median(double* arr, int n, int thread_id){
   return ans;
 }
 
+
+// --------------------------------------------------------------------
+// MEDIAN OF MEDIANS
+int pivot(double* arr, int left, int right);
+
+static inline int median_of_5(double* arr, int left, int right){ // median_Selection
+  for(int i = 1; i < 5; i++){
+    double key = arr[left + i];
+    int j = left + i-1;
+    while(j >= left && arr[j] > key){
+      arr[j+1] = arr[j];
+      j--;
+    }
+    arr[j+1] = key;
+  }
+  return left + (right - left)/2;
+}
+
+int partition2(double* arr, int left, int right, int pivotIndex, int  n){
+  double pivotVal = arr[pivotIndex];
+  int store = left;
+
+  swap(&arr[pivotIndex], &arr[right]);
+
+  for(int i = left; i < right -1; i++){
+    if(arr[i] < pivotVal){
+      swap(&arr[store], &arr[i]);
+      store++;
+    }
+  }
+  int storeEq = store;
+  for(int i = store; i < right -1; i++){
+    if(arr[i] == pivotVal){
+      swap(&arr[storeEq], &arr[i]);
+      storeEq++;
+    }
+  }
+  swap(&arr[right], &arr[storeEq]);
+
+  if(n < store) return store;
+  if(n<= storeEq) return n;
+
+  return storeEq;
+}
+
+int median_select(double* arr, int left, int right, int n){
+  while(1){
+    if(left == right)
+      return left;
+    int pivotIndex = pivot(arr, left, right);
+    pivotIndex = partition2(arr, left, right, pivotIndex, n);
+    if(n == pivotIndex) return n;
+    else if(n < pivotIndex) right = pivotIndex - 1;
+    else left = pivotIndex + 1;
+  }
+}
+
+int pivot(double* arr, int left, int right){
+  if(left - right < 5)
+    return median_of_5(arr, left, right);
+ for(int i = left; i < right; i +=5){
+    int subRight = i + 4;
+    if(subRight > right)
+      subRight = right;
+    int l_median = median_of_5(arr, i, subRight);
+
+    swap(&arr[l_median], &arr[left + (int)((i-left)/5)]);
+  }
+  int mid = floor((right-left)/10) + left + 1;
+  return median_select(arr, left,left + (int)((right-left)/5), mid);
+}
+
+double nth_smallest(double* arr, int n){
+  int index = median_select(arr, 0, n - 1, n / 2);
+  return arr[index];
+}
+
+double median_2(double* arr, int n){
+  double value;
+  if(n %2 == 0)
+    value = 0.5 * (nth_smallest(arr, n/2) + nth_smallest(arr, n/2-1)); 
+  else
+    value = nth_smallest(arr, n/2);
+  return value;
+}
+
+
 // --------------------------------------------------------------------
 // ALGORITMO PARALELO DE CHAN 
 //  https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
@@ -251,7 +338,7 @@ int main(int argc, char *argv[]) {
 
   // amostra pra conferir
   imprimir_resumo(&dados);
-  imprimir_notas(&dados, 0);
+  // imprimir_notas(&dados, 0);
 
   double tempo = omp_get_wtime();
 
@@ -361,7 +448,7 @@ int main(int argc, char *argv[]) {
       // printa os alunos e corrige o tempo de execução (n lembro se é obrigatório printar isso)
       double antes = omp_get_wtime();
       // precisa imprimir as médias antes de reordenar o vetor alunos (quickselect)
-      imprimir_medias_alunos(alunos, &ent);
+      // imprimir_medias_alunos(alunos, &ent);
       double depois = omp_get_wtime();
       tempo -= (depois - antes);
     
@@ -375,7 +462,7 @@ int main(int argc, char *argv[]) {
         int idx_cidade = i*ent.C + j;
         int idx_aluno = indice_aluno(&ent, i, j, 0); // primeiro aluno de cada cidade
         
-        cidades[idx_cidade].mediana = median(&alunos[idx_aluno], ent.A, 0);
+        cidades[idx_cidade].mediana = median_2(&alunos[idx_aluno], ent.A);
       }
     }
 
@@ -390,7 +477,7 @@ int main(int argc, char *argv[]) {
       int num_alunos = ent.C * ent.A;
       int idx_aluno = indice_aluno(&ent, i, 0, 0); // primeiro aluno de cada regiao
       
-      regioes[i].mediana = median(&alunos[idx_aluno], num_alunos, 0);
+      regioes[i].mediana = median_2(&alunos[idx_aluno], num_alunos);
     }
 
     printf("Tempo após MEDIANA REGIAO: %.5f\n", omp_get_wtime() - tempo);
@@ -399,15 +486,15 @@ int main(int argc, char *argv[]) {
   // ---------------------------------------------------------------------------------------------
   // MEDIANAS BRASIL
     
-  brasil.mediana = median(alunos, tot_alunos, 0);
+  brasil.mediana = median_2(alunos, tot_alunos);
     
   
   tempo = omp_get_wtime() - tempo; 
 
   
-  imprimir_medias_cidades(cidades, &ent);
-  imprimir_medias_regioes(regioes, &ent);
-  imprimir_medias_brasil(brasil);
+  // imprimir_medias_cidades(cidades, &ent);
+  // imprimir_medias_regioes(regioes, &ent);
+  // imprimir_medias_brasil(brasil);
 
   printf("\nTempo de execução final(Med Brasil): %.5f\n", tempo);
 
