@@ -498,6 +498,15 @@ int main(int argc, char *argv[]) {
 
   printf("\nTempo de execução final(Med Brasil): %.5f\n", tempo);
 
+  FILE *fp = fopen("res_seq.txt","w");
+  if (fp == NULL) {
+        printf("Error: Could not open file.\n");
+        return 1;
+  }
+  fprintf(fp, "%.5f\n", tempo);
+  fclose(fp);
+
+
   free(alunos);
   free(cidades);
   free(regioes);

@@ -1,3 +1,4 @@
+#include "input.h"
 #include <stdio.h>
 #include <stdlib.h>
 #define QTD_PAR 4
