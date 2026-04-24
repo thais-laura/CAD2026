@@ -206,10 +206,9 @@ void imprimir_premiacoes(DadosSaida *cidades, DadosSaida *regioes, Entrada *ent)
   }
 
   printf("Premiação       | Reg/Cid | Media Arit\n");
-  printf("Melhor Regiao:  |   R%d    | %.1f\n", regiao, media_regiao);
-  printf("Melhor cidade:  | R%d-C%d   | %.1f\n", cidade / ent->C, cidade % ent->C, media_cidade);
+  printf("Melhor Regiao:      R%d      %.1f\n", regiao, media_regiao);
+  printf("Melhor cidade:    R%d-C%d     %.1f\n", cidade / ent->C, cidade % ent->C, media_cidade);
 }
-
 // --------------------------------------------------------------------
 // MEDIAN OF MEDIANS
 // https://en.wikipedia.org/wiki/Median_of_medians
@@ -229,7 +228,8 @@ int pivot(double* arr, int left, int right);
 // ordena os subvetores com insertion (pois o tamanho do vetor é pequeno)
 // retorna o indice do elemento central (mediana do subvetor)
 static inline int median_of_5(double* arr, int left, int right){ // median_Selection
-  for(int i = 1; i < 5; i++){
+  int number_of_elements = right - left;
+  for(int i = 1; i <= number_of_elements; i++){
     double key = arr[left + i];
     int j = left + i-1;
     while(j >= left && arr[j] > key){
@@ -238,7 +238,7 @@ static inline int median_of_5(double* arr, int left, int right){ // median_Selec
     }
     arr[j+1] = key;
   }
-  return left + (right - left)/2;
+  return left + number_of_elements/2;
 }
 
 // divide o vetor em 3: menores que o pivô, iguais e maiores
@@ -249,7 +249,7 @@ int partition(double* arr, int left, int right, int pivotIndex, int  n){
   swap(&arr[pivotIndex], &arr[right]);
 
   // agrupa os menores a esquerda
-  for(int i = left; i < right -1; i++){
+  for(int i = left; i < right; i++){
     if(arr[i] < pivotVal){
       swap(&arr[store], &arr[i]);
       store++;
@@ -257,7 +257,7 @@ int partition(double* arr, int left, int right, int pivotIndex, int  n){
   }
   // agrupa os iguais em seguida
   int storeEq = store;
-  for(int i = store; i < right -1; i++){
+  for(int i = store; i < right; i++){
     if(arr[i] == pivotVal){
       swap(&arr[storeEq], &arr[i]);
       storeEq++;
@@ -296,11 +296,10 @@ int median_select(double* arr, int left, int right, int n){
 // move pro inicio do vetor chama recursão para achar a mediana verdadeira
 int pivot(double* arr, int left, int right){
   // caso base: com menos de 5 elementos, acha a mediana direto
-  if(left - right < 5)
+  if(right - left < 5)
     return median_of_5(arr, left, right);
 
   // varre o array de 5 em 5 elementos
-  #pragma omp for schedule(dynamic)
   for(int i = left; i < right; i +=5){
     int subRight = i + 4;
     // garante q não estoura o tamanho do vetor
@@ -318,8 +317,8 @@ int pivot(double* arr, int left, int right){
 }
 
 // encapsula a chamada da seleção para pegar o elemento central
-double nth_smallest(double* arr, int n){
-  int index = median_select(arr, 0, n - 1, n / 2);
+double nth_smallest(double* arr, int n, int rank){
+  int index = median_select(arr, 0, n - 1, rank);
   return arr[index];
 }
 
@@ -327,9 +326,9 @@ double nth_smallest(double* arr, int n){
 double median(double* arr, int n){
   double value;
   if(n %2 == 0)
-    value = 0.5 * (nth_smallest(arr, n/2) + nth_smallest(arr, n/2-1)); 
+    value = 0.5 * (nth_smallest(arr, n, n/2) + nth_smallest(arr, n, n/2-1)); 
   else
-    value = nth_smallest(arr, n/2);
+    value = nth_smallest(arr, n, n/2);
   return value;
 }
 
@@ -514,7 +513,7 @@ int main(int argc, char *argv[]) {
       int end = start + ent.R - 1;
 
       // desce a arvore de recursão juntando as regioes
-      chanRecursivo(regioes, start, end, ent.C, &resultado_brasil);
+      chanRecursivo(regioes, start, end, ent.C* ent.A, &resultado_brasil);
 
       brasil.media = resultado_brasil.media;
       brasil.dsvpdr = (resultado_brasil.n > 1) ? sqrt(resultado_brasil.M2 / (resultado_brasil.n - 1)) : 0.0;
