@@ -7,7 +7,7 @@
     Yudi Asano Ramos                  12873553
 */
 
-// gcc -Wall -O3 studentsseq.c input.c -o teste-seq -lm -fopenmp
+// gcc -Wall -O3 studentsseq.c -o teste-seq -lm -fopenmp
 // ./teste-seq Trab01-AvalEstudantes-ExemploArqEntrada0-v2.txt
 
 #include <stdio.h>

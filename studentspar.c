@@ -7,7 +7,7 @@
     Yudi Asano Ramos                  12873553
 */
 
-// gcc -Wall -O3 studentspar.c input.c -o teste-par -lm -fopenmp
+// gcc -Wall -O3 studentspar.c -o teste-par -lm -fopenmp
 // ./teste-par Trab01-AvalEstudantes-ExemploArqEntrada0-v2.txt
 
 #include <stdio.h>
