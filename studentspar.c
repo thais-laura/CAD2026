@@ -577,7 +577,7 @@ int main(int argc, char *argv[]) {
   imprimir_resultados_brasil(brasil);
   imprimir_premiacoes(cidades, regioes, &ent);
 
-  printf("\nTempo de resposta em segundos, sem considerar E/S: %.1fs\n", tempo);
+  printf("\nTempo de resposta em segundos, sem considerar E/S: %.3fs\n", tempo);
 
   free(alunos);
   free(cidades);
