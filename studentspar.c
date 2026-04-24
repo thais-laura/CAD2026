@@ -136,7 +136,7 @@ void imprimir_resultados_cidades(DadosSaida *cidades, Entrada *ent) {
     for (int i = 0; i < ent->R; i++) {
         for (int j = 0; j < ent->C; j++) {
             int cidade_idx = i * ent->C + j;
-            printf("R = %d, C = %d    %.3f         %.3f           %.3f         %.3f       %.3f\n", 
+            printf("R = %d, C = %d    %.1f         %.1f           %.1f         %.1f       %.1f\n", 
               i, j, 
               cidades[cidade_idx].menor, 
               cidades[cidade_idx].maior, 
@@ -153,7 +153,7 @@ void imprimir_resultados_regioes(DadosSaida *regioes, Entrada *ent) {
     printf("\n--- Dados Consolidados por Região ---\n");
     printf("Regiões   |   Min Nota  |   Max Nota    |   Mediana   |   Média   |   DsvPdr\n");
     for (int i = 0; i < ent->R; i++) {
-        printf("R = %d         %.3f         %.3f           %.3f         %.3f       %.3f\n", 
+        printf("R = %d         %.1f         %.1f           %.1f         %.1f       %.1f\n", 
                i, 
                regioes[i].menor, 
                regioes[i].maior, 
@@ -167,7 +167,7 @@ void imprimir_resultados_regioes(DadosSaida *regioes, Entrada *ent) {
 void imprimir_resultados_brasil(DadosSaida brasil) {
   printf("\n--- Resultado Brasil ---\n");
   printf("      |   Min Nota  |   Max Nota    |   Mediana   |   Média   |   DsvPdr\n");
-  printf("          %.3f           %.3f            %.3f          %.3f        %.3f\n", 
+  printf("          %.1f           %.1f            %.1f          %.1f        %.1f\n", 
         brasil.menor, 
         brasil.maior, 
         brasil.mediana, 
@@ -568,7 +568,7 @@ int main(int argc, char *argv[]) {
   imprimir_resultados_brasil(brasil);
   imprimir_premiacoes(cidades, regioes, &ent);
 
-  printf("\nTempo de resposta em segundos, sem considerar E/S: %.3fs\n", tempo);
+  printf("\nTempo de resposta em segundos, sem considerar E/S: %.1fs\n", tempo);
 
   free(alunos);
   free(cidades);
