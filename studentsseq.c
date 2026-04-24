@@ -1,4 +1,4 @@
-// gcc -Wall -O3 studentsseq.c input.c -o teste-seq -lm -fopenmp
+// gcc -Wall studentsseq.c input.c -o teste-seq -lm -fopenmp
 // ./teste-seq Trab01-AvalEstudantes-ExemploArqEntrada0-v2.txt
 
 #include "input.h"
@@ -21,62 +21,90 @@ typedef struct{
 } DadosSaida;
 
 // funções de print (não estão na formatação esperada, foi elaborada apenas para verificar os resultados)
-void imprimir_medias_alunos(double *alunos, Entrada *ent) {
+void imprimir_resultados_alunos(double *alunos, Entrada *ent) {
     printf("\n--- Médias dos Alunos ---\n");
     for (int i = 0; i < ent->R; i++) {
         for (int j = 0; j < ent->C; j++) {
             for (int k = 0; k < ent->A; k++) {
                 int idx = indice_aluno(ent, i, j, k);
-                printf("Região %d | Cidade %d | Aluno %d: Média %.2f \n", 
+                printf("R = %d, C = %d, A = %d: Média %.2f \n", 
                        i, j, k, alunos[idx]);
             }
         }
     }
-    printf("---------------------------------------------\n");
+    printf("---------------------------------------------\n");  
 }
 
-void imprimir_medias_cidades(DadosSaida *cidades, Entrada *ent) {
+void imprimir_resultados_cidades(DadosSaida *cidades, Entrada *ent) {
     printf("\n--- Dados Consolidados por Cidade ---\n");
+    printf("Cidades     |   Min Nota  |   Max Nota    |   Mediana   |   Média   |   DsvPdr\n");
     for (int i = 0; i < ent->R; i++) {
-        printf("Região %d:\n", i);
         for (int j = 0; j < ent->C; j++) {
             int cidade_idx = i * ent->C + j;
-            printf("  Cidade %d: Média %.2f | DP %.2f | Mediana %.2f | Menor %.2f | Maior %.2f\n", 
-                   j, 
-                   cidades[cidade_idx].media, 
-                   cidades[cidade_idx].dsvpdr, 
-                   cidades[cidade_idx].mediana, 
-                   cidades[cidade_idx].menor, 
-                   cidades[cidade_idx].maior);
+            printf("R = %d, C = %d    %.2f         %.2f           %.2f         %.2f       %.2f\n", 
+              i, cidade_idx, 
+              cidades[j].menor, 
+              cidades[j].maior, 
+              cidades[j].mediana, 
+              cidades[j].media, 
+              cidades[j].dsvpdr);
         }
     }
     printf("---------------------------------------------------\n");
 }
 
 
-void imprimir_medias_regioes(DadosSaida *regioes, Entrada *ent) {
+void imprimir_resultados_regioes(DadosSaida *regioes, Entrada *ent) {
     printf("\n--- Dados Consolidados por Região ---\n");
+    printf("Regiões   |   Min Nota  |   Max Nota    |   Mediana   |   Média   |   DsvPdr\n");
     for (int i = 0; i < ent->R; i++) {
-        printf("Região %d: Média %.2f | DP %.2f | Mediana %.2f | Menor %.2f | Maior %.2f\n", 
+        printf("R = %d         %.2f         %.2f           %.2f         %.2f       %.2f\n", 
                i, 
-               regioes[i].media, 
-               regioes[i].dsvpdr, 
-               regioes[i].mediana, 
                regioes[i].menor, 
-               regioes[i].maior);
+               regioes[i].maior, 
+               regioes[i].mediana, 
+               regioes[i].media, 
+               regioes[i].dsvpdr);
     }
     printf("-------------------------------------------------\n");
 }
 
-void imprimir_medias_brasil(DadosSaida brasil) {
+void imprimir_resultados_brasil(DadosSaida brasil) {
   printf("\n--- Resultado Brasil ---\n");
-  printf("Média: %.2f | Desvio Padrão: %.2f | Mediana: %.2f | Menor: %.2f | Maior: %.2f\n", 
-         brasil.media, 
-         brasil.dsvpdr, 
-         brasil.mediana, 
-         brasil.menor, 
-         brasil.maior);
+  printf("      |   Min Nota  |   Max Nota    |   Mediana   |   Média   |   DsvPdr\n");
+  printf("          %.2f         %.2f           %.2f         %.2f       %.2f\n", 
+        brasil.menor, 
+        brasil.maior, 
+        brasil.mediana, 
+        brasil.media, 
+        brasil.dsvpdr);
   printf("------------------------\n");
+}
+
+void imprimir_premiacoes(DadosSaida *cidades, DadosSaida *regioes, Entrada *ent){
+  int regiao, cidade;
+  double media_regiao = 0.0, media_cidade = 0.0;
+
+
+  for(int i = 0; i < ent->R; i++){
+    for(int j = 0; j < ent->C; j++){
+      int idx_cidade = i*ent->C + j;
+      double media = cidades[idx_cidade].media;
+      if(media > media_cidade){
+        cidade = idx_cidade;
+        media_cidade = media;
+      }
+    }
+    double media = regioes[i].media;
+    if(media > media_regiao){
+      regiao = i;
+      media_regiao = media;
+    }
+  }
+
+  printf("Premiação       | Reg/Cid | Media Arit\n");
+  printf("Melhor Regiao:  |   R%d    | %.2f\n", regiao, media_regiao);
+  printf("Melhor cidade:  | R%d-C%d   | %.2f\n", cidade / ent->C, cidade % ent->C, media_cidade);
 }
 
 // -----------------------------------------------------------------------------------------
@@ -448,7 +476,7 @@ int main(int argc, char *argv[]) {
       // printa os alunos e corrige o tempo de execução (n lembro se é obrigatório printar isso)
       double antes = omp_get_wtime();
       // precisa imprimir as médias antes de reordenar o vetor alunos (quickselect)
-      // imprimir_medias_alunos(alunos, &ent);
+      // imprimir_resultados_alunos(alunos, &ent);
       double depois = omp_get_wtime();
       tempo -= (depois - antes);
     
@@ -492,9 +520,10 @@ int main(int argc, char *argv[]) {
   tempo = omp_get_wtime() - tempo; 
 
   
-  // imprimir_medias_cidades(cidades, &ent);
-  // imprimir_medias_regioes(regioes, &ent);
-  // imprimir_medias_brasil(brasil);
+  imprimir_resultados_cidades(cidades, &ent);
+  imprimir_resultados_regioes(regioes, &ent);
+  imprimir_resultados_brasil(brasil);
+  imprimir_premiacoes(cidades, regioes, &ent);
 
   printf("\nTempo de execução final(Med Brasil): %.5f\n", tempo);
 
