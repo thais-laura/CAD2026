@@ -83,7 +83,7 @@ void imprimir_resultados_brasil(DadosSaida brasil) {
 }
 
 void imprimir_premiacoes(DadosSaida *cidades, DadosSaida *regioes, Entrada *ent){
-  int regiao, cidade;
+  int regiao = 0, cidade = 0;
   double media_regiao = 0.0, media_cidade = 0.0;
 
 
@@ -107,11 +107,11 @@ void imprimir_premiacoes(DadosSaida *cidades, DadosSaida *regioes, Entrada *ent)
   printf("Melhor cidade:    R%d-C%d     %.2f\n", cidade / ent->C, cidade % ent->C, media_cidade);
 }
 
-// -----------------------------------------------------------------------------------------
-// RANDOM QUICKMEDIAN_SELECT
-// algoritmo que escolhe um pivo aleatoriamente no vetor, e troca elementos nas partições
-// até os menores ficarem a esquerda e os maiores a direita. Isso é feito até o pivô ser 
-// a mediana, e as partições em que a mediana certamente nao está são descartadas (não ordena).
+// --------------------------------------------------------------------
+// MEDIAN OF MEDIANS
+// https://en.wikipedia.org/wiki/Median_of_medians
+// algoritmo para mediana O(N), dividindo o vetor em subvetores em 5
+// para achar um bom candidato a pivô para quickselect
 
 // troca dois elementos de posicao no vetor
 void swap(double* a, double* b){
@@ -120,79 +120,11 @@ void swap(double* a, double* b){
   *b = temp;
 }
 
-// particao do quickmedian_select: joga menores que o pivo pra esquerda
-int partition(double* arr, int l, int r){
-  int i = l, j = l;
-  double lst = arr[r];
-  while(j < r) {
-    if(arr[j] < lst){
-      swap(&arr[i], &arr[j]);
-      i++;
-    }
-    j++;
-  } 
-  swap(&arr[i], &arr[r]);
-  return i;
-}
-
-// escolhe pivo aleatorio (evita o pior caso de O(N^2))
-int randomPartition(double* arr, int l, int r, unsigned int *seed){
-  int n = r - l + 1;
-  int pivot = rand_r(seed) % n;
-  swap(&arr[l + pivot], &arr[r]);
-  return partition(arr, l, r); 
-}
-// acha os elementos centrais (a e b), com particoes recursivas chamadas em outras tasks
-// se ainda n atingiu THRESHOLD_CHAN
-void medianUtil(double* arr, int l, int r, int k, double* a, double* b, unsigned int *seed){
-  if(l <= r){
-    int partitionIndex = randomPartition(arr, l, r, seed);
-    // se achou pivo no meio do vetor e elementos centrais, retorna
-    if(partitionIndex == k) {
-      *b = arr[partitionIndex];
-      if(*a != -1)
-        return;
-    }
-
-    else if(partitionIndex == k - 1){
-      *a = arr[partitionIndex];
-      if(*b != -1)
-        return;
-    }
-    // senao, divide, criando ou nao tasks dependendo do tamanho do subvetor
-    if(*a == -1 || *b == -1){
-      if(partitionIndex >= k){
-        medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);
-        medianUtil(arr, l, partitionIndex - 1, k, a, b, seed);
-      } else {
-        medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);
-        medianUtil(arr, partitionIndex + 1, r, k, a, b, seed);
-      }
-    }
-  }
-}
-
-// pega um array desordenado e bagunça até achar a mediana 
-double median(double* arr, int n, int thread_id){
-  double a = -1.0, b = -1.0;
-  double ans;
-  unsigned int seed = thread_id + 1;
-  medianUtil(arr, 0, n-1, n / 2, &a, &b, &seed);
-  
-  
-  if(n % 2 == 1){
-    ans = b;
-  } else {
-    ans = (a + b)/2;
-  }
-  
-  return ans;
-}
-
-// --------------------------------------------------------------------
-// MEDIAN OF MEDIANS
+// declaração para uso no median_select (recursão cruzada)
 int pivot(double* arr, int left, int right);
 
+// ordena os subvetores com insertion (pois o tamanho do vetor é pequeno)
+// retorna o indice do elemento central (mediana do subvetor)
 static inline int median_of_5(double* arr, int left, int right){ // median_Selection
   for(int i = 1; i < 5; i++){
     double key = arr[left + i];
@@ -206,18 +138,21 @@ static inline int median_of_5(double* arr, int left, int right){ // median_Selec
   return left + (right - left)/2;
 }
 
-int partition2(double* arr, int left, int right, int pivotIndex, int  n){
+// divide o vetor em 3: menores que o pivô, iguais e maiores
+int partition(double* arr, int left, int right, int pivotIndex, int  n){
   double pivotVal = arr[pivotIndex];
   int store = left;
-
+  // joga o pivô pro final  
   swap(&arr[pivotIndex], &arr[right]);
 
+  // agrupa os menores a esquerda
   for(int i = left; i < right -1; i++){
     if(arr[i] < pivotVal){
       swap(&arr[store], &arr[i]);
       store++;
     }
   }
+  // agrupa os iguais em seguida
   int storeEq = store;
   for(int i = store; i < right -1; i++){
     if(arr[i] == pivotVal){
@@ -225,48 +160,68 @@ int partition2(double* arr, int left, int right, int pivotIndex, int  n){
       storeEq++;
     }
   }
+  // devolve o pivô
   swap(&arr[right], &arr[storeEq]);
 
+  // verifica o grupo do n-esimo eleemnto retorna a posição
   if(n < store) return store;
   if(n<= storeEq) return n;
 
   return storeEq;
 }
 
+// laco principal do quickselect. usa o pivot para restringir
+// o array na partição com o n-esimo elemento
 int median_select(double* arr, int left, int right, int n){
   while(1){
+    // encontrou o elemento
     if(left == right)
       return left;
+    // pega um bom pivô
     int pivotIndex = pivot(arr, left, right);
-    pivotIndex = partition2(arr, left, right, pivotIndex, n);
+    // particiona o vetor a partir do pivo
+    pivotIndex = partition(arr, left, right, pivotIndex, n);
+    // se o pivô ficou na posição desejada, retorna ele
     if(n == pivotIndex) return n;
+    // senão, descarta a metade inutil do vetor e continua
     else if(n < pivotIndex) right = pivotIndex - 1;
     else left = pivotIndex + 1;
   }
 }
 
+// divide o array nos blocos de 5, acha a mediana de cada 1
+// move pro inicio do vetor chama recursão para achar a mediana verdadeira
 int pivot(double* arr, int left, int right){
+  // caso base: com menos de 5 elementos, acha a mediana direto
   if(left - right < 5)
     return median_of_5(arr, left, right);
- #pragma omp for schedule(dynamic)
- for(int i = left; i < right; i +=5){
+
+  // varre o array de 5 em 5 elementos
+  #pragma omp for schedule(dynamic)
+  for(int i = left; i < right; i +=5){
     int subRight = i + 4;
+    // garante q não estoura o tamanho do vetor
     if(subRight > right)
       subRight = right;
+    // acha o indice do vetorda mediana no pedaço
     int l_median = median_of_5(arr, i, subRight);
-
+    // joga as sub-medianas pro inicio do array
     swap(&arr[l_median], &arr[left + (int)((i-left)/5)]);
   }
-  int mid = floor((right-left)/10) + left + 1;
+  // indice do meio do grupo de sub-medianas
+  int mid = (right-left)/10 + left + 1;
+  // chama recursão cruzada para achar a mediana das medianas e a usa como pivô
   return median_select(arr, left,left + (int)((right-left)/5), mid);
 }
 
+// encapsula a chamada da seleção para pegar o elemento central
 double nth_smallest(double* arr, int n){
   int index = median_select(arr, 0, n - 1, n / 2);
   return arr[index];
 }
 
-double median_2(double* arr, int n){
+// chamada principal: lida com o calculo das medianas para tamanhos de array pares e ímpares
+double median(double* arr, int n){
   double value;
   if(n %2 == 0)
     value = 0.5 * (nth_smallest(arr, n/2) + nth_smallest(arr, n/2-1)); 
@@ -517,7 +472,7 @@ int main(int argc, char *argv[]) {
         int idx_aluno = indice_aluno(&ent, i, j, 0); // primeiro aluno de cada cidade
        // int thread_num = omp_get_thread_num();
         
-        cidades[idx_cidade].mediana = median_2(&alunos[idx_aluno], ent.A);
+        cidades[idx_cidade].mediana = median(&alunos[idx_aluno], ent.A);
       }
     }
 
@@ -535,7 +490,7 @@ int main(int argc, char *argv[]) {
       int idx_aluno = indice_aluno(&ent, i, 0, 0); // primeiro aluno de cada regiao
       //int thread_num = omp_get_thread_num();
       
-      regioes[i].mediana = median_2(&alunos[idx_aluno], num_alunos);
+      regioes[i].mediana = median(&alunos[idx_aluno], num_alunos);
     }
 
     #pragma omp master
@@ -550,7 +505,7 @@ int main(int argc, char *argv[]) {
      #pragma omp single
      {
       //int thread_num = omp_get_thread_num();
-      brasil.mediana = median_2(alunos, tot_alunos);
+      brasil.mediana = median(alunos, tot_alunos);
      }
 
     
