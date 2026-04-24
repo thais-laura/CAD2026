@@ -1,3 +1,12 @@
+/* SSC0903 - Computação de Alto Desempenho - Trabalho 1
+    Elaborado por:
+    Gabriella Castelari Gonçalves     14755082
+    Matheus Lopes Ponciano            14598358
+    Murilo Cury Pontes                13830417
+    Thaís Laura Anício Andrade        14608765
+    Yudi Asano Ramos                  12873553
+*/
+
 // gcc -Wall studentspar.c input.c -o teste-par -lm -fopenmp
 // ./teste-par Trab01-AvalEstudantes-ExemploArqEntrada0-v2.txt
 
