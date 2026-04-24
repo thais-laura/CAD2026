@@ -21,21 +21,6 @@ typedef struct{
   double dsvpdr;
 } DadosSaida;
 
-// funções de print (não estão na formatação esperada, foi elaborada apenas para verificar os resultados)
-void imprimir_resultados_alunos(double *alunos, Entrada *ent) {
-    printf("\n--- Médias dos Alunos ---\n");
-    for (int i = 0; i < ent->R; i++) {
-        for (int j = 0; j < ent->C; j++) {
-            for (int k = 0; k < ent->A; k++) {
-                int idx = indice_aluno(ent, i, j, k);
-                printf("Região %d | Cidade %d | Aluno %d: Média %.1f \n", 
-                       i, j, k, alunos[idx]);
-            }
-        }
-    }
-    printf("---------------------------------------------\n");
-}
-
 void imprimir_resultados_cidades(DadosSaida *cidades, Entrada *ent) {
     printf("\n--- Dados Consolidados por Cidade ---\n");
     printf("Cidades     |   Min Nota  |   Max Nota    |   Mediana   |   Média   |   DsvPdr\n");
@@ -43,12 +28,12 @@ void imprimir_resultados_cidades(DadosSaida *cidades, Entrada *ent) {
         for (int j = 0; j < ent->C; j++) {
             int cidade_idx = i * ent->C + j;
             printf("R = %d, C = %d    %.1f         %.1f           %.1f         %.1f       %.1f\n", 
-              i, cidade_idx, 
-              cidades[j].menor, 
-              cidades[j].maior, 
-              cidades[j].mediana, 
-              cidades[j].media, 
-              cidades[j].dsvpdr);
+              i, j, 
+              cidades[cidade_idx].menor, 
+              cidades[cidade_idx].maior, 
+              cidades[cidade_idx].mediana, 
+              cidades[cidade_idx].media, 
+              cidades[cidade_idx].dsvpdr);
         }
     }
     printf("---------------------------------------------------\n");
@@ -103,8 +88,8 @@ void imprimir_premiacoes(DadosSaida *cidades, DadosSaida *regioes, Entrada *ent)
     }
   }
   printf("Premiação       | Reg/Cid | Media Arit\n");
-  printf("Melhor Regiao:      R%d      %.2f\n", regiao, media_regiao);
-  printf("Melhor cidade:    R%d-C%d     %.2f\n", cidade / ent->C, cidade % ent->C, media_cidade);
+  printf("Melhor Regiao:      R%d      %.1f\n", regiao, media_regiao);
+  printf("Melhor cidade:    R%d-C%d     %.1f\n", cidade / ent->C, cidade % ent->C, media_cidade);
 }
 
 // --------------------------------------------------------------------
@@ -369,11 +354,6 @@ int main(int argc, char *argv[]) {
       } 
     }
 
-    #pragma omp master
-    {
-        printf("Tempo após MEDIA ALUNOS: %.5f\n", omp_get_wtime() - tempo);
-    }
-
 // ---------------------------------------------------------------------------------------------
 // MEDIA, DESVIO PADRAO, <, > CIDADE
     #pragma omp for private(i, j, k) schedule(static) collapse(2)
@@ -405,11 +385,6 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    #pragma omp master
-    {
-        printf("Tempo após MEDIA/DP/</> CIDADES: %.5f\n", omp_get_wtime() - tempo);
-    }
-
 // ---------------------------------------------------------------------------------------------
 // MEDIA, DESVIO PADRAO, <, > REGIOES
 // dynamic pois as tasks podem demorar tempos diferentes (devido ao rand e dados diferentes)
@@ -428,10 +403,6 @@ int main(int argc, char *argv[]) {
       regioes[i].menor = resultado_regiao.menor;
     }
     
-    #pragma omp master 
-    {
-      printf("Tempo após calculo das regioes:%.5f\n", (omp_get_wtime() - tempo));
-    }
     // ---------------------------------------------------------------------------------------------
 // MEDIA, DESVIO PADRAO, <, > BRASIL
     #pragma omp single
@@ -450,17 +421,6 @@ int main(int argc, char *argv[]) {
       brasil.menor = resultado_brasil.menor;
     }
 
-    // --------------------------------------------------------------------------------------------------------
-    #pragma omp single
-    {
-      // printa os alunos e corrige o tempo de execução (n lembro se é obrigatório printar isso)
-      double antes = omp_get_wtime();
-      // precisa imprimir as médias antes de reordenar o vetor alunos (quickselect)
-      // imprimir_resultados_alunos(alunos, &ent);
-      double depois = omp_get_wtime();
-      tempo -= (depois - antes);
-    }
-
     // ---------------------------------------------------------------------------------------------
     // MEDIANAS CIDADE
     #pragma omp for private(i, j, k) collapse(2)
@@ -470,15 +430,9 @@ int main(int argc, char *argv[]) {
       {
         int idx_cidade = i*ent.C + j;
         int idx_aluno = indice_aluno(&ent, i, j, 0); // primeiro aluno de cada cidade
-       // int thread_num = omp_get_thread_num();
         
         cidades[idx_cidade].mediana = median(&alunos[idx_aluno], ent.A);
       }
-    }
-
-    #pragma omp master
-    {
-        printf("Tempo após MEDIANA CIDADES: %.5f\n", omp_get_wtime() - tempo);
     }
     // ---------------------------------------------------------------------------------------------
     // MEDIANAS REGIÃO
@@ -488,38 +442,28 @@ int main(int argc, char *argv[]) {
     {
       int num_alunos = ent.C * ent.A;
       int idx_aluno = indice_aluno(&ent, i, 0, 0); // primeiro aluno de cada regiao
-      //int thread_num = omp_get_thread_num();
       
       regioes[i].mediana = median(&alunos[idx_aluno], num_alunos);
     }
 
-    #pragma omp master
-    {
-        printf("Tempo após MEDIANA REGIAO: %.5f\n", omp_get_wtime() - tempo);
-    }
-
     // ---------------------------------------------------------------------------------------------
     // MEDIANAS BRASIL
-    
-    
+
      #pragma omp single
      {
-      //int thread_num = omp_get_thread_num();
       brasil.mediana = median(alunos, tot_alunos);
      }
-
-    
   }
 
 
   tempo = omp_get_wtime() - tempo; 
 
-  
   imprimir_resultados_cidades(cidades, &ent);
   imprimir_resultados_regioes(regioes, &ent);
   imprimir_resultados_brasil(brasil);
+  imprimir_premiacoes(cidades, regioes, &ent);
 
-  printf("\nTempo de execução final(Med Brasil): %.5f\n", tempo);
+  printf("\nTempo de resposta em segundos, sem considerar E/S: %.3f\n", tempo);
 
   free(alunos);
   free(cidades);
