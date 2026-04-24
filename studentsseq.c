@@ -1,8 +1,6 @@
 // gcc -Wall -O3 studentsseq.c input.c -o teste-seq -lm -fopenmp
 // ./teste-seq Trab01-AvalEstudantes-ExemploArqEntrada0-v2.txt
 
-#include "input.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <omp.h>
@@ -10,6 +8,117 @@
 #include <string.h>
 
 #define THRESHOLD_CHAN 1000
+// PROCESSAMENTO DE ENTRADA E GERAÇÃO DAS NOTAS PSEUDO-ALEATÓRIAS
+typedef struct {
+  int R;             // regioes
+  int C;             // cidades por regiao
+  int A;             // alunos por cidade
+  int N;             // notas por aluno
+  int T;             // threads
+  unsigned int seed; // semente
+} Entrada;
+
+// dados prontos pra processar
+// notas[indice_aluno(r,c,a) * N + n] = nota do aluno
+typedef struct {
+  Entrada entrada;
+  int total_alunos; // R * C * A
+  long total_notas; // R * C * A * N
+  double *notas;    // vetor continuo
+} DadosAlunos;
+
+int ler_entrada(const char *caminho, Entrada *out) {
+  FILE *fp = fopen(caminho, "r");
+  if (!fp) {
+    fprintf(stderr, "Erro: nao abriu '%s'.\n", caminho);
+    return -1;
+  }
+
+  // 6 linhas: R, C, A, N, T, seed
+  int lidos = fscanf(fp, "%d %d %d %d %d %u", &out->R, &out->C, &out->A,
+                     &out->N, &out->T, &out->seed);
+  fclose(fp);
+
+  if (lidos != 6) {
+    fprintf(stderr, "Erro: leitura incompleta (%d de 6).\n", lidos);
+    return -1;
+  }
+  return 0;
+}
+
+int validar_entrada(const Entrada *ent) {
+  // todos > 0, seed pode ser 0
+  if (ent->R <= 0) {
+    fprintf(stderr, "Erro: R deve ser > 0.\n");
+    return -1;
+  }
+  if (ent->C <= 0) {
+    fprintf(stderr, "Erro: C deve ser > 0.\n");
+    return -1;
+  }
+  if (ent->A <= 0) {
+    fprintf(stderr, "Erro: A deve ser > 0.\n");
+    return -1;
+  }
+  if (ent->N <= 0) {
+    fprintf(stderr, "Erro: N deve ser > 0.\n");
+    return -1;
+  }
+  if (ent->T <= 0) {
+    fprintf(stderr, "Erro: T deve ser > 0.\n");
+    return -1;
+  }
+  return 0;
+}
+
+// os alunos ficam num vetor so
+// primeiro todos da cidade 0 da regiao 0, depois cidade 1 da regiao 0, etc.
+// ex: com C=4, A=6 -> aluno (r=1, c=2, a=3) = 1*4*6 + 2*6 + 3 = 39
+int indice_aluno(const Entrada *ent, int r, int c, int a) {
+  return r * (ent->C * ent->A) + c * ent->A + a;
+}
+
+// cada aluno tem N notas seguidas no vetor, entao a posicao eh:
+// indice_do_aluno * N + numero_da_nota
+// cast pra long pq com muitos alunos o int pode estourar
+long pos_nota(const Entrada *ent, int r, int c, int a, int n) {
+  return (long)indice_aluno(ent, r, c, a) * ent->N + n;
+}
+
+DadosAlunos criar_dados(const Entrada *ent) {
+  DadosAlunos dados = {0};
+  dados.entrada = *ent;
+  dados.total_alunos = ent->R * ent->C * ent->A;
+  dados.total_notas = (long)dados.total_alunos * ent->N;
+
+  dados.notas = (double *)malloc((size_t)dados.total_notas * sizeof(double));
+  if (!dados.notas) {
+    fprintf(stderr, "Erro: falha ao alocar memoria.\n");
+    return dados;
+  }
+
+  srand(ent->seed);
+
+  // gera notas na ordem: regiao, cidade, aluno, nota
+  // rand() % 101 da valores inteiros 0-100, guardados como double
+  for (int r = 0; r < ent->R; r++)
+    for (int c = 0; c < ent->C; c++)
+      for (int a = 0; a < ent->A; a++)
+        for (int n = 0; n < ent->N; n++)
+          dados.notas[pos_nota(ent, r, c, a, n)] = (double)(rand() % 101);
+
+  return dados;
+}
+
+void liberar_dados(DadosAlunos *dados) {
+  if (!dados)
+    return;
+  free(dados->notas);
+  dados->notas = NULL;
+}
+
+// -----------------------------------------------------------------------------------
+// DEFINIÇÃO DO TIPO DE DADO DE SAIDA E IMPRESSÃO
 
 // armazena as estatisticas calculadas pra cada nivel (cidade, regiao, brasil)
 typedef struct{
@@ -57,7 +166,7 @@ void imprimir_resultados_regioes(DadosSaida *regioes, Entrada *ent) {
 void imprimir_resultados_brasil(DadosSaida brasil) {
   printf("\n--- Resultado Brasil ---\n");
   printf("      |   Min Nota  |   Max Nota    |   Mediana   |   Média   |   DsvPdr\n");
-  printf("          %.1f         %.1f           %.1f         %.1f       %.1f\n", 
+  printf("          %.1f           %.1f            %.1f          %.1f        %.1f\n", 
         brasil.menor, 
         brasil.maior, 
         brasil.mediana, 
@@ -258,7 +367,7 @@ void chanRecursivo(DadosSaida* in, int start, int end, int medias_por_indice_in,
         double delta = media - out->media;
         double n_novo = out->n + medias_por_indice_in;
         
-        out->M2 = M2 + (delta * delta) * (out->n * medias_por_indice_in) / n_novo;
+        out->M2 = out->M2 + M2 + (delta * delta) * (out->n * medias_por_indice_in) / n_novo;
         out->media += delta * (medias_por_indice_in / n_novo);
         out->n = n_novo;
 
@@ -305,10 +414,6 @@ int main(int argc, char *argv[]) {
   DadosAlunos dados = criar_dados(&ent);
   if (!dados.notas)
     return EXIT_FAILURE;
-
-  // amostra pra conferir
-  imprimir_resumo(&dados);
-  // imprimir_notas(&dados, 0);
 
   double tempo = omp_get_wtime();
 
@@ -458,7 +563,7 @@ int main(int argc, char *argv[]) {
   imprimir_resultados_brasil(brasil);
   imprimir_premiacoes(cidades, regioes, &ent);
 
-  printf("\nTempo de resposta em segundos, sem considerar E/S: %.3f\n", tempo);
+  printf("\nTempo de resposta em segundos, sem considerar E/S: %.3fs\n", tempo);
 
   free(alunos);
   free(cidades);
